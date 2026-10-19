@@ -1,0 +1,28 @@
+spring:
+
+  http:
+    converters:
+      preferred-json-mapper: jackson2
+
+  task.execution.pool.core-size: 8
+
+  jackson:
+    default-property-inclusion: non_null
+
+  kafka:
+    producer:
+      properties:
+        max.in.flight.requests.per.connection: 1
+
+event-sourcing:
+  snapshotting:
+    # com.example.eventsourcing.domain.AggregateType
+    ORDER:
+      enabled: true
+      # Create a snapshot on every nth event
+      nth-event: 10
+  # Available subscription: polling, postgres-channel
+  subscriptions: postgres-channel
+  polling-subscriptions:
+    polling-initial-delay: PT1S
+    polling-interval: PT1S

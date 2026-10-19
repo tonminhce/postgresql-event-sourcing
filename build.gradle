@@ -1,0 +1,19 @@
+allprojects {
+    group = 'com.example'
+    version = project.properties['project_version']
+}
+
+subprojects {
+    apply plugin: 'java'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(25)
+        }
+        sourceCompatibility = '25'
+    }
+
+    repositories {
+        mavenCentral()
+    }
+}
