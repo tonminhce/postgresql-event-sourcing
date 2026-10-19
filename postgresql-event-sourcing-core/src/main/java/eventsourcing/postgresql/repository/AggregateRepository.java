@@ -64,6 +64,9 @@ public class AggregateRepository {
         jdbcTemplate.update("""
                         INSERT INTO ES_AGGREGATE_SNAPSHOT (AGGREGATE_ID, VERSION, JSON_DATA)
                         VALUES (:aggregateId, :version, :jsonObj::jsonb)
+                        ON CONFLICT (AGGREGATE_ID) DO UPDATE
+                               SET VERSION = EXCLUDED.VERSION,
+                                   JSON_DATA = EXCLUDED.JSON_DATA
                         """,
                 Map.of(
                         "aggregateId", aggregate.getAggregateId(),

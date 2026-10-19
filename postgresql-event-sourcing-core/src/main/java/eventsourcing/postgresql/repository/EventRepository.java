@@ -1,9 +1,12 @@
 package eventsourcing.postgresql.repository;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import eventsourcing.postgresql.domain.event.Event;
+import eventsourcing.postgresql.domain.event.EventMetadata;
 import eventsourcing.postgresql.domain.event.EventTypeMapper;
 import eventsourcing.postgresql.domain.event.EventWithId;
+import eventsourcing.postgresql.service.event.EventUpcasterChain;
 import jakarta.annotation.Nullable;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
@@ -30,19 +33,22 @@ public class EventRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final EventTypeMapper eventTypeMapper;
+    private final EventUpcasterChain eventUpcasterChain;
 
     @SneakyThrows
     public <T extends Event> EventWithId<T> appendEvent(@NonNull Event event) {
+        EventMetadata metadata = event.getMetadata() != null ? event.getMetadata() : EventMetadata.empty();
         List<EventWithId<T>> result = jdbcTemplate.query("""
-                        INSERT INTO ES_EVENT (TRANSACTION_ID, AGGREGATE_ID, VERSION, EVENT_TYPE, JSON_DATA)
-                        VALUES(pg_current_xact_id(), :aggregateId, :version, :eventType, :jsonObj::jsonb)
-                        RETURNING ID, TRANSACTION_ID::text, EVENT_TYPE, JSON_DATA
+                        INSERT INTO ES_EVENT (TRANSACTION_ID, AGGREGATE_ID, VERSION, EVENT_TYPE, JSON_DATA, METADATA)
+                        VALUES(pg_current_xact_id(), :aggregateId, :version, :eventType, :jsonObj::jsonb, :metadata::jsonb)
+                        RETURNING ID, TRANSACTION_ID::text, EVENT_TYPE, JSON_DATA, METADATA
                         """,
                 Map.of(
                         "aggregateId", event.getAggregateId(),
                         "version", event.getVersion(),
                         "eventType", event.getEventType(),
-                        "jsonObj", objectMapper.writeValueAsString(event)
+                        "jsonObj", objectMapper.writeValueAsString(event),
+                        "metadata", objectMapper.writeValueAsString(metadata)
                 ),
                 this::toEvent);
         return result.get(0);
@@ -60,7 +66,8 @@ public class EventRepository {
                         SELECT ID,
                                TRANSACTION_ID::text,
                                EVENT_TYPE,
-                               JSON_DATA
+                               JSON_DATA,
+                               METADATA
                           FROM ES_EVENT
                          WHERE AGGREGATE_ID = :aggregateId
                            AND (:fromVersion IS NULL OR VERSION > :fromVersion)
@@ -85,7 +92,8 @@ public class EventRepository {
                         SELECT e.ID,
                                e.TRANSACTION_ID::text,
                                e.EVENT_TYPE,
-                               e.JSON_DATA
+                               e.JSON_DATA,
+                               e.METADATA
                           FROM ES_EVENT e
                           JOIN ES_AGGREGATE a on a.ID = e.AGGREGATE_ID
                          WHERE a.AGGREGATE_TYPE = :aggregateType
@@ -109,10 +117,24 @@ public class EventRepository {
         long id = rs.getLong("ID");
         String transactionId = rs.getString("TRANSACTION_ID");
         String eventType = rs.getString("EVENT_TYPE");
+
         PGobject jsonObj = (PGobject) rs.getObject("JSON_DATA");
         String json = jsonObj.getValue();
+
+        PGobject metadataObj = (PGobject) rs.getObject("METADATA");
+        EventMetadata metadata;
+        if (metadataObj != null && metadataObj.getValue() != null) {
+            metadata = objectMapper.readValue(metadataObj.getValue(), EventMetadata.class);
+        } else {
+            metadata = EventMetadata.empty();
+        }
+
+        JsonNode jsonNode = objectMapper.readTree(json);
+        JsonNode upcastedNode = eventUpcasterChain.upcast(eventType, metadata.getSchemaVersion(), jsonNode);
+
         Class<? extends Event> eventClass = eventTypeMapper.getClassByEventType(eventType);
-        Event event = objectMapper.readValue(json, eventClass);
+        Event event = objectMapper.treeToValue(upcastedNode, eventClass);
+        event.setMetadata(metadata);
         return new EventWithId<>(id, new BigInteger(transactionId), (T) event);
     }
 }

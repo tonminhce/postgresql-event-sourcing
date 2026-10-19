@@ -4,7 +4,13 @@ spring:
     converters:
       preferred-json-mapper: jackson2
 
-  task.execution.pool.core-size: 8
+  task:
+    execution:
+      pool:
+        core-size: 8
+      shutdown:
+        await-termination: true
+        await-termination-period: 5s
 
   jackson:
     default-property-inclusion: non_null
