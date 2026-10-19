@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import eventsourcing.postgresql.metrics.EventSourcingMetrics;
+
 import java.util.List;
 
 @Component
@@ -24,7 +26,7 @@ public class EventSubscriptionBatchProcessor {
     private final EventSubscriptionDeadLetterRepository deadLetterRepository;
     private final EventRepository eventRepository;
     private final EventSourcingProperties properties;
-    private final eventsourcing.postgresql.metrics.EventSourcingMetrics metrics;
+    private final EventSourcingMetrics metrics;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean processBatch(AsyncEventHandler eventHandler, String subscriptionName, int batchSize) {

@@ -1,5 +1,6 @@
 package com.example.eventsourcing;
 
+import com.example.eventsourcing.service.event.OrderIntegrationEventSender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,8 +80,8 @@ class AdminOpsIntegrationTests extends AbstractContainerBaseTest {
                 "SELECT STATUS FROM RM_ORDER WHERE ID = ?", String.class, UUID.fromString(orderId));
         assertThat(restoredStatus).isEqualTo("PLACED");
 
-        java.math.BigDecimal restoredPrice = jdbcTemplate.queryForObject(
-                "SELECT PRICE FROM RM_ORDER WHERE ID = ?", java.math.BigDecimal.class, UUID.fromString(orderId));
+        BigDecimal restoredPrice = jdbcTemplate.queryForObject(
+                "SELECT PRICE FROM RM_ORDER WHERE ID = ?", BigDecimal.class, UUID.fromString(orderId));
         assertThat(restoredPrice).isEqualByComparingTo("150.00");
 
         // Also test bulk rebuild endpoint
@@ -132,7 +134,7 @@ class AdminOpsIntegrationTests extends AbstractContainerBaseTest {
         );
 
         // Insert a poison pill record into ES_EVENT_SUBSCRIPTION_DEAD_LETTER
-        String subscriptionName = com.example.eventsourcing.service.event.OrderIntegrationEventSender.class.getName();
+        String subscriptionName = OrderIntegrationEventSender.class.getName();
         jdbcTemplate.update("""
                 INSERT INTO ES_EVENT_SUBSCRIPTION_DEAD_LETTER
                     (SUBSCRIPTION_NAME, EVENT_ID, TRANSACTION_ID, AGGREGATE_TYPE, EVENT_TYPE, ERROR_MESSAGE, STACK_TRACE, RETRY_COUNT)

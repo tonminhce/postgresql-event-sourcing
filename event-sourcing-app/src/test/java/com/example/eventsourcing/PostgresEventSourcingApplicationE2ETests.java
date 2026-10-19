@@ -5,9 +5,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.restclient.RestTemplateBuilder;
 
-import static com.example.eventsourcing.PostgresEventSourcingApplicationE2ETests.E2E_TESTING_ENV_VAR;
-
-@EnabledIfEnvironmentVariable(named = E2E_TESTING_ENV_VAR, matches = "true")
+@EnabledIfEnvironmentVariable(named = PostgresEventSourcingApplicationE2ETests.E2E_TESTING_ENV_VAR, matches = "true")
 class PostgresEventSourcingApplicationE2ETests {
 
     public static final String E2E_TESTING_ENV_VAR = "E2E_TESTING";

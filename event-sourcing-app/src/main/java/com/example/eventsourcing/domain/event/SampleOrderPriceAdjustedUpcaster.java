@@ -17,13 +17,12 @@ public class SampleOrderPriceAdjustedUpcaster implements EventUpcaster {
 
     @Override
     public JsonNode upcast(JsonNode eventJson) {
-        ObjectNode objectNode = (ObjectNode) eventJson;
-        if (objectNode.has("legacyPriceField")) {
+        if (eventJson instanceof ObjectNode objectNode && objectNode.has("legacyPriceField")) {
             BigDecimal val = new BigDecimal(objectNode.get("legacyPriceField").asText());
             objectNode.put("newPrice", val);
             objectNode.remove("legacyPriceField");
         }
-        return objectNode;
+        return eventJson;
     }
 
     @Override

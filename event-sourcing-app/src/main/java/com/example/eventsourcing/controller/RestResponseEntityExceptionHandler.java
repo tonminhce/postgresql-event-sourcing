@@ -1,9 +1,6 @@
 package com.example.eventsourcing.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import eventsourcing.postgresql.error.AggregateStateException;
-import lombok.RequiredArgsConstructor;
 import eventsourcing.postgresql.error.OptimisticConcurrencyControlException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,44 +11,27 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import java.util.NoSuchElementException;
 
 @ControllerAdvice
-@RequiredArgsConstructor
 public class RestResponseEntityExceptionHandler extends ResponseEntityExceptionHandler {
 
-    private final ObjectMapper objectMapper;
+    public record ErrorResponse(String error) {}
 
-    @ExceptionHandler(value = {OptimisticConcurrencyControlException.class})
-    protected ResponseEntity<JsonNode> handleOccException(OptimisticConcurrencyControlException ex) {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(objectMapper.createObjectNode()
-                        .put("error", ex.getMessage()));
+    @ExceptionHandler(OptimisticConcurrencyControlException.class)
+    protected ResponseEntity<ErrorResponse> handleOcc(OptimisticConcurrencyControlException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.getMessage()));
     }
 
-    @ExceptionHandler(value = {NoSuchElementException.class})
-    protected ResponseEntity<JsonNode> handleNotFound(NoSuchElementException ex) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(objectMapper.createObjectNode()
-                        .put("error", ex.getMessage()));
+    @ExceptionHandler(NoSuchElementException.class)
+    protected ResponseEntity<ErrorResponse> handleNotFound(NoSuchElementException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(ex.getMessage()));
     }
 
-    @ExceptionHandler(value = {IllegalStateException.class})
-    protected ResponseEntity<JsonNode> handleIllegalState(IllegalStateException ex) {
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(objectMapper.createObjectNode()
-                        .put("error", ex.getMessage()));
+    @ExceptionHandler(IllegalStateException.class)
+    protected ResponseEntity<ErrorResponse> handleIllegalState(IllegalStateException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(new ErrorResponse(ex.getMessage()));
     }
 
-    @ExceptionHandler(value = {AggregateStateException.class})
-    protected ResponseEntity<JsonNode> handleException(AggregateStateException aggregateStateException) {
-        return ResponseEntity.badRequest()
-                .body(objectMapper.createObjectNode()
-                        .put("error", aggregateStateException.getMessage()));
-    }
-
-    @ExceptionHandler(value = {IllegalArgumentException.class})
-    protected ResponseEntity<JsonNode> handleIllegalArgument(IllegalArgumentException ex) {
-        return ResponseEntity.badRequest()
-                .body(objectMapper.createObjectNode()
-                        .put("error", ex.getMessage()));
+    @ExceptionHandler({AggregateStateException.class, IllegalArgumentException.class})
+    protected ResponseEntity<ErrorResponse> handleBadRequest(RuntimeException ex) {
+        return ResponseEntity.badRequest().body(new ErrorResponse(ex.getMessage()));
     }
 }
-

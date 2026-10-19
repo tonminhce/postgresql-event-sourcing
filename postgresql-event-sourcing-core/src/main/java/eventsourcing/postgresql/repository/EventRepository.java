@@ -23,6 +23,7 @@ import java.sql.ResultSet;
 import java.sql.Types;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Transactional(propagation = Propagation.MANDATORY)
@@ -111,8 +112,8 @@ public class EventRepository {
                 this::toEvent);
     }
 
-    public java.util.Optional<EventWithId<Event>> findEventById(long eventId) {
-        List<EventWithId<Event>> result = jdbcTemplate.query("""
+    public Optional<EventWithId<Event>> findEventById(long eventId) {
+        return jdbcTemplate.query("""
                         SELECT ID,
                                TRANSACTION_ID::text,
                                EVENT_TYPE,
@@ -123,8 +124,7 @@ public class EventRepository {
                         """,
                 Map.of("eventId", eventId),
                 this::toEvent
-        );
-        return result.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(result.get(0));
+        ).stream().findFirst();
     }
 
     @SuppressWarnings("unchecked")

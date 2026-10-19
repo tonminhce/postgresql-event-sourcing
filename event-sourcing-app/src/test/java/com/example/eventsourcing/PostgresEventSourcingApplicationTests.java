@@ -21,14 +21,6 @@ abstract class PostgresEventSourcingApplicationTests extends AbstractContainerBa
 
     @Test
     void orderTestScript() throws Exception {
-        System.out.println("###");
-        System.out.println("###");
-        System.out.println("###");
-        System.out.println("E2E_TESTING = " + System.getenv().get("E2E_TESTING"));
-        System.out.println("###");
-        System.out.println("###");
-        System.out.println("###");
-
         new OrderTestScript(restTemplate, KAFKA.getBootstrapServers()).execute();
     }
 }

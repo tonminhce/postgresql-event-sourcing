@@ -26,6 +26,19 @@
     - [Listen/Notify as an alternative to database polling](#4-7-4)
   - [Adding new asynchronous event handlers](#4-8)
   - [Drawbacks](#4-9)
+  - [Production-grade enterprise features](#4-10)
+    - [Command idempotency](#4-10-1)
+    - [Event upcasting and schema evolution](#4-10-2)
+    - [Dead letter queue and fault tolerance](#4-10-3)
+    - [Zero-downtime projection rebuilding](#4-10-4)
+    - [Observability and Prometheus metrics](#4-10-5)
+    - [Database performance and autovacuum tuning](#4-10-6)
+  - [Visual architectural diagrams](#4-11)
+    - [CQRS and Event Sourcing end-to-end architecture](#4-11-1)
+    - [Command execution and optimistic concurrency control sequence](#4-11-2)
+    - [Transactional outbox and PostgreSQL Listen/Notify flow](#4-11-3)
+    - [Order aggregate state machine](#4-11-4)
+    - [Dead letter queue and admin replay sequence](#4-11-5)
 - [Project structure](#5)
   - [Maven modules](#5-1)
   - [Database schema migrations](#5-2)
@@ -35,6 +48,9 @@
     - [Class diagram of the service layer](#5-3-3)
 - [How to adapt it to your domain?](#6)
 - [How to run the sample?](#7)
+  - [Step-by-step setup](#7-1)
+  - [REST API testing with cURL](#7-2)
+  - [Day-2 admin operations (DLQ & Projections)](#7-3)
 
 <!-- Table of contents is made with https://github.com/eugene-khyst/md-toc-cli -->
 
@@ -549,6 +565,256 @@ Using PostgreSQL as an event store has a lot of advantages, but there are also d
    and events created by all later transactions will be read by the event subscription processor 
    only after this long-running transaction is committed.
 
+### <a id="4-10"></a>Production-grade enterprise features
+
+To transform this reference architecture into an enterprise-ready foundation, six critical resilience, schema evolution, and performance subsystems have been integrated:
+
+#### <a id="4-10-1"></a>Command idempotency
+
+In distributed networks, clients or API gateways often retry network requests due to transient timeouts. Without deduplication, duplicate writes can occur (e.g., charging twice or duplicating orders).
+
+* **Mechanism**: Clients supply an optional `Idempotency-Key` HTTP header (or a deterministic UUID / hash is derived).
+* **Storage**: The `ES_IDEMPOTENCY_KEY` table (Flyway migration V8) records the key, aggregate ID, HTTP status code, response payload, and creation timestamp.
+* **Flow**:
+  1. [`IdempotencyService`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/IdempotencyService.java) queries `ES_IDEMPOTENCY_KEY`.
+  2. If the key exists, the cached JSON response and status are immediately returned to the caller with zero side effects.
+  3. If new, the command is processed by [`CommandProcessor`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/CommandProcessor.java), and the result is committed atomically with the command transaction.
+
+> [!TIP]
+> Always send an `Idempotency-Key` (e.g. UUIDv4) in high-value mutation operations (`POST /orders`, `PUT /orders/{id}`) to safeguard against duplicate client invocations.
+
+#### <a id="4-10-2"></a>Event upcasting and schema evolution
+
+Event stores are append-only and immutable. However, business requirements change over time, altering event schema definitions. Updating historical events in place violates event sourcing purity.
+
+* **Upcasting**: When older event versions are read from PostgreSQL, they are intercepted in-memory by [`EventUpcasterChain`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/event/EventUpcasterChain.java) before aggregate state reconstitution.
+* **Migration V6**: Added `METADATA JSONB` (`V6__add_event_metadata.sql`) to `ES_EVENT` for extensible payload versioning and distributed tracing metadata.
+* **Example**: [`SampleOrderPriceAdjustedUpcaster`](event-sourcing-app/src/main/java/com/example/eventsourcing/domain/event/SampleOrderPriceAdjustedUpcaster.java) transforms legacy v1 price events into v2 payloads transparently without rewriting database rows.
+
+#### <a id="4-10-3"></a>Dead letter queue and fault tolerance
+
+Asynchronous event handlers (such as integration publishers or downstream consumers) may encounter poison pills (unparseable data) or persistent downstream system outages. If left unhandled, a single failing event would block the entire subscription stream.
+
+* **Exponential Backoff**: [`EventSubscriptionBatchProcessor`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/EventSubscriptionBatchProcessor.java) retries failed handlers with increasing delays (1s, 2s, 4s).
+* **DLQ Isolation**: If max retries are exceeded, the event, exception class, error message, stack trace, and timestamp are inserted into `ES_EVENT_SUBSCRIPTION_DEAD_LETTER` (Flyway migration V4 `V4__subscription_dlq.sql`).
+* **Stream Continuity**: The subscription checkpoint is safely advanced, ensuring healthy events continue streaming without system-wide deadlocks.
+* **Day-2 Management**: [`EventSubscriptionDeadLetterService`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/EventSubscriptionDeadLetterService.java) provides operations to inspect DLQ records (`GET /admin/subscriptions/dlq`), replay specific entries (`POST /admin/subscriptions/dlq/{id}/replay`), or purge dead records.
+
+#### <a id="4-10-4"></a>Zero-downtime projection rebuilding
+
+Read projections may drift due to bugs, require recalculation with new fields, or need rebuilding from scratch.
+
+* [`OrderProjectionRebuildService`](event-sourcing-app/src/main/java/com/example/eventsourcing/projection/OrderProjectionRebuildService.java) provides:
+  - Granular single-aggregate projection repair (`POST /admin/projections/orders/{id}/rebuild`).
+  - Full stream projection rebuild (`POST /admin/projections/orders/rebuild`), streaming distinct aggregate IDs in batches and replaying events without database downtime or table locks.
+* Read models maintain projection tables (`RM_ORDER` and `RM_ORDER_ROUTE`) for instant CQRS query access.
+
+#### <a id="4-10-5"></a>Observability and Prometheus metrics
+
+Production systems require deep visibility into event throughput, lag, and conflict rates:
+
+* [`EventSourcingMetrics`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/metrics/EventSourcingMetrics.java) exports standard Micrometer/Prometheus metrics:
+  - `event_sourcing_events_appended_total`: Counter tracking total events appended across aggregate types.
+  - `event_sourcing_occ_conflicts_total`: Counter monitoring Optimistic Concurrency Control collisions.
+  - `event_sourcing_dlq_events_total`: Counter tracking poison pills routed to DLQ.
+  - `event_sourcing_subscription_lag`: Gauge measuring the distance between the newest event ID in `ES_EVENT` and `ES_EVENT_SUBSCRIPTION.LAST_EVENT_ID`.
+  - `event_sourcing_event_append_duration_seconds`: Histogram measuring write latency.
+  - `event_sourcing_subscription_batch_duration_seconds`: Histogram measuring async processing batch latency.
+
+#### <a id="4-10-6"></a>Database performance and autovacuum tuning
+
+PostgreSQL requires deliberate tuning for append-only, high-write event stores:
+
+* **Migration V9 (`V9__performance_tuning.sql`)**:
+  - `autovacuum_vacuum_scale_factor = 0.05` & `autovacuum_analyze_scale_factor = 0.02`: Decreases vacuum thresholds from the default 20% down to 5%, preventing transaction ID wraparound and table bloat on high-volume event tables.
+  - `fillfactor = 100` on `ES_EVENT`: Because events are strictly append-only and never updated, setting fillfactor to 100% maximizes storage page density and cache efficiency.
+  - Compound Index `IDX_ES_EVENT_TRANSACTION_ID_ID (TRANSACTION_ID, ID)`: Optimizes composite row comparison `(TRANSACTION_ID, ID) > (:lastTxId, :lastId)` for lightning-fast batch pagination without full table scans.
+
+---
+
+### <a id="4-11"></a>Visual architectural diagrams
+
+The following diagrams illustrate the core architectural concepts, control flows, and state machines implemented in this system.
+
+#### <a id="4-11-1"></a>CQRS and Event Sourcing end-to-end architecture
+
+```mermaid
+flowchart TD
+    subgraph Clients["Clients & Gateways"]
+        Client["Client Application / Frontend"]
+    end
+
+    subgraph CommandSide["Write Side (Command Stack)"]
+        Controller["OrdersController\n(Idempotency Filter)"]
+        CmdHandler["Specialized Command Handlers\n(Place, Adjust, Accept, Complete, Cancel)"]
+        OrderAgg["OrderAggregate\n(Validates Domain Invariants)"]
+        AggStore["AggregateStore & AggregateRepository"]
+    end
+
+    subgraph EventStoreDB["PostgreSQL Event Store (Write Model)"]
+        EsAgg["ES_AGGREGATE\n(Aggregate Root & Version)"]
+        EsEvent["ES_EVENT\n(xid8, JSONB, Schema Version)"]
+        EsIdemp["ES_IDEMPOTENCY_KEY\n(Request Deduplication)"]
+        Trigger["NOTIFY trigger\n(pg_notify channel)"]
+    end
+
+    subgraph QuerySide["Read Side (Query Stack)"]
+        SyncProj["OrderProjectionUpdater\n(Synchronous Read Model)"]
+        OrderProj["ORDER_PROJECTION\n(Query-Optimized Table)"]
+        QueryController["OrdersController\n(GET /orders/{id})"]
+    end
+
+    subgraph AsyncProcessing["Asynchronous Processing & Outbox"]
+        Listener["PostgresChannelEventSubscriptionProcessor\n(LISTEN/NOTIFY + Safety Poll)"]
+        BatchProc["EventSubscriptionBatchProcessor\n(Retry + DLQ Routing)"]
+        IntegrationPub["OrderIntegrationEventSender"]
+        Kafka[("Apache Kafka\n'order-events' Topic")]
+        DLQ["ES_EVENT_SUBSCRIPTION_DEAD_LETTER\n(Poison Pill Isolation)"]
+    end
+
+    Client -->|"POST / PUT (Command + Idempotency-Key)"| Controller
+    Controller -->|"Dispatch Command"| CmdHandler
+    CmdHandler -->|"Rehydrate & Apply"| OrderAgg
+    CmdHandler -->|"Persist Aggregate"| AggStore
+    AggStore -->|"Check & Increment Version (OCC)"| EsAgg
+    AggStore -->|"Append New Events"| EsEvent
+    Controller -.->|"Cache Response"| EsIdemp
+    EsEvent -->|"Fire Trigger"| Trigger
+
+    AggStore -->|"Synchronous Handler"| SyncProj
+    SyncProj -->|"Upsert Projection"| OrderProj
+    Client -->|"GET /orders/{id}"| QueryController
+    QueryController -->|"Fast Read"| OrderProj
+
+    Trigger -.->|"PostgreSQL Channel Notification"| Listener
+    Listener -->|"Batch Fetch Unprocessed Events"| EsEvent
+    Listener -->|"Process Batch"| BatchProc
+    BatchProc -->|"Publish Integration Event"| IntegrationPub
+    IntegrationPub -->|"At-Least-Once Delivery"| Kafka
+    BatchProc -.->|"After Max Retries"| DLQ
+```
+
+#### <a id="4-11-2"></a>Command execution and optimistic concurrency control sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant Controller as OrdersController
+    participant Idemp as IdempotencyService
+    participant Processor as CommandProcessor
+    participant Handler as CommandHandler
+    participant Store as AggregateStore
+    participant DB as PostgreSQL (ES_AGGREGATE & ES_EVENT)
+    participant SyncProj as OrderProjectionUpdater
+
+    Client->>Controller: POST /orders (Payload, Idempotency-Key)
+    Controller->>Idemp: checkAndGetExisting(key)
+    alt Key already exists
+        Idemp-->>Controller: Return cached response
+        Controller-->>Client: 200 OK (Cached OrderDto)
+    else New request
+        Controller->>Processor: process(PlaceOrderCommand)
+        Processor->>Store: readAggregate(ORDER, orderId)
+        Store->>DB: Read latest snapshot & forward events
+        DB-->>Store: Snapshot + Event stream
+        Store-->>Processor: Rehydrated OrderAggregate (version=0)
+        Processor->>Handler: handle(OrderAggregate, Command)
+        Handler->>OrderAggregate: process(PlaceOrderCommand)
+        Note over OrderAggregate: Validates price > 0, riderId != null,<br/>waypoint coordinates [-90..90, -180..180]
+        OrderAggregate-->>Handler: OrderPlacedEvent registered
+        Processor->>Store: saveAggregate(OrderAggregate)
+        Store->>DB: UPDATE ES_AGGREGATE SET VERSION = 1 WHERE ID = :id AND VERSION = 0
+        alt OCC Conflict (Rows updated == 0)
+            DB-->>Store: 0 rows updated
+            Store-->>Controller: OptimisticConcurrencyException
+            Controller-->>Client: 409 Conflict (Concurrent Modification)
+        else Version increment successful
+            Store->>DB: INSERT INTO ES_EVENT (pg_current_xact_id(), aggregateId, version, data)
+            Store->>SyncProj: handleEvents(events, aggregate)
+            SyncProj->>DB: INSERT / UPDATE ORDER_PROJECTION
+            Store-->>Processor: Saved events
+            Processor-->>Controller: Updated OrderAggregate
+            Controller->>Idemp: recordResponse(key, 201, OrderDto)
+            Controller-->>Client: 201 Created (OrderDto)
+        end
+    end
+```
+
+#### <a id="4-11-3"></a>Transactional outbox and PostgreSQL Listen/Notify flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant AppTx as Application Transaction
+    participant PG as PostgreSQL
+    participant SubProc as PostgresChannelEventSubscriptionProcessor
+    participant BatchProc as EventSubscriptionBatchProcessor
+    participant Kafka as Apache Kafka
+    participant DLQ as ES_EVENT_SUBSCRIPTION_DEAD_LETTER
+
+    AppTx->>PG: INSERT INTO ES_EVENT (TRANSACTION_ID=pg_current_xact_id(), ...)
+    AppTx->>PG: COMMIT
+    Note over PG: Trigger notify_event() executes pg_notify('es_event', ...)
+    PG-->>SubProc: Channel notification received (Immediate wakeup)
+    SubProc->>PG: SELECT * FROM ES_EVENT WHERE (TRANSACTION_ID, ID) > (lastTxId, lastId)<br/>AND TRANSACTION_ID < pg_snapshot_xmin(pg_current_snapshot())<br/>ORDER BY TRANSACTION_ID ASC, ID ASC LIMIT :batchSize
+    PG-->>SubProc: Batch of committed events
+    SubProc->>BatchProc: processEvents(events, subscription)
+    loop For each event in batch
+        alt Processing succeeds
+            BatchProc->>Kafka: send(OrderIntegrationEvent)
+            Kafka-->>BatchProc: Ack
+        else Handler failure / Poison pill
+            Note over BatchProc: Exponential backoff retry (1s, 2s, 4s)
+            alt Max retries exhausted
+                BatchProc->>DLQ: INSERT INTO ES_EVENT_SUBSCRIPTION_DEAD_LETTER
+                Note over BatchProc: Poison pill isolated; stream unblocked!
+            end
+        end
+    end
+    BatchProc->>PG: UPDATE ES_EVENT_SUBSCRIPTION SET LAST_TRANSACTION_ID=..., LAST_EVENT_ID=...
+```
+
+#### <a id="4-11-4"></a>Order aggregate state machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> PLACED: PlaceOrderCommand\n(riderId, price > 0, valid route)
+    PLACED --> ADJUSTED: AdjustOrderPriceCommand\n(newPrice != price)
+    ADJUSTED --> ADJUSTED: AdjustOrderPriceCommand\n(newPrice != price)
+    PLACED --> ACCEPTED: AcceptOrderCommand\n(driverId != null, driverId != riderId)
+    ADJUSTED --> ACCEPTED: AcceptOrderCommand\n(driverId != null, driverId != riderId)
+    ACCEPTED --> COMPLETED: CompleteOrderCommand\n(must have assigned driver)
+    PLACED --> CANCELLED: CancelOrderCommand\n(optional reason)
+    ADJUSTED --> CANCELLED: CancelOrderCommand\n(optional reason)
+    ACCEPTED --> CANCELLED: CancelOrderCommand\n(optional reason)
+    COMPLETED --> [*]
+    CANCELLED --> [*]
+```
+
+#### <a id="4-11-5"></a>Dead letter queue and admin replay sequence
+
+```mermaid
+flowchart TD
+    Event["Stream Event (ES_EVENT)"] --> SubProc["Subscription Processor"]
+    SubProc --> ExecHandler["Execute Async Handler"]
+    ExecHandler --> Result{"Success?"}
+    Result -- Yes --> Ack["Update Checkpoint in ES_EVENT_SUBSCRIPTION"]
+    Result -- No --> Retry{"Retry < Max (3)?"}
+    Retry -- Yes --> Backoff["Exponential Backoff (1s, 2s, 4s)"] --> ExecHandler
+    Retry -- No --> SaveDLQ["Persist to ES_EVENT_SUBSCRIPTION_DEAD_LETTER\n(Error message, stack trace, payload)"]
+    SaveDLQ --> Ack
+    SaveDLQ -.-> Alert["Prometheus Metric: event_sourcing_dlq_events_total"]
+
+    subgraph AdminOps["Day-2 Admin Operations"]
+        AdminUser["Operator / Admin"] --> Inspect["GET /admin/subscriptions/dlq"]
+        Inspect --> FixCause["Fix Root Cause / Target Service"]
+        FixCause --> Replay["POST /admin/subscriptions/dlq/{id}/replay"]
+        Replay --> ReExec["Re-invoke Handler"]
+        ReExec --> DelDLQ["DELETE from DLQ on Success"]
+    end
+```
+
 ## <a id="5"></a>Project structure
 
 ### <a id="5-1"></a>Maven modules
@@ -569,12 +835,18 @@ Event sourcing related code and application specific code are located in separat
 
 ### <a id="5-2"></a>Database schema migrations
 
-Event sourcing related database schema migrations:
-* [V1__eventsourcing_tables.sql](event-sourcing-app/src/main/resources/db/migration/V1__eventsourcing_tables.sql)
-* [V2__notify_trigger.sql](event-sourcing-app/src/main/resources/db/migration/V2__notify_trigger.sql)
+The database schema is managed via Flyway across 10 incremental, production-hardened migrations:
 
-Application specific projections database schema migration:
-* [V3__projection_tables.sql](event-sourcing-app/src/main/resources/db/migration/V3__projection_tables.sql)
+* [V1__eventsourcing_tables.sql](event-sourcing-app/src/main/resources/db/migration/V1__eventsourcing_tables.sql) &mdash; Core event store tables (`ES_AGGREGATE`, `ES_EVENT` with 64-bit `xid8 TRANSACTION_ID`, `ES_EVENT_SUBSCRIPTION`).
+* [V2__notify_trigger.sql](event-sourcing-app/src/main/resources/db/migration/V2__notify_trigger.sql) &mdash; PostgreSQL `notify_event()` trigger function executing `pg_notify('es_event', ...)` on every committed event.
+* [V3__projection_tables.sql](event-sourcing-app/src/main/resources/db/migration/V3__projection_tables.sql) &mdash; Read model query tables (`RM_ORDER`, `RM_ORDER_ROUTE`).
+* [V4__subscription_dlq.sql](event-sourcing-app/src/main/resources/db/migration/V4__subscription_dlq.sql) &mdash; Poison pill isolation table (`ES_EVENT_SUBSCRIPTION_DEAD_LETTER`).
+* [V5__migrate_to_jsonb.sql](event-sourcing-app/src/main/resources/db/migration/V5__migrate_to_jsonb.sql) &mdash; Migration of event and snapshot payloads from `JSON` to `JSONB` for indexing and query efficiency.
+* [V6__add_event_metadata.sql](event-sourcing-app/src/main/resources/db/migration/V6__add_event_metadata.sql) &mdash; Adds `METADATA JSONB` column to `ES_EVENT` for tracing and schema versioning.
+* [V7__snapshot_compaction.sql](event-sourcing-app/src/main/resources/db/migration/V7__snapshot_compaction.sql) &mdash; Aggregate snapshot table (`ES_AGGREGATE_SNAPSHOT`) with upsert compaction (`ON CONFLICT DO UPDATE`).
+* [V8__idempotency_keys.sql](event-sourcing-app/src/main/resources/db/migration/V8__idempotency_keys.sql) &mdash; API request deduplication table (`ES_IDEMPOTENCY_KEY`).
+* [V9__performance_tuning.sql](event-sourcing-app/src/main/resources/db/migration/V9__performance_tuning.sql) &mdash; PostgreSQL engine tuning (`autovacuum_vacuum_scale_factor = 0.05`, `fillfactor = 100`, composite pagination index).
+* [V10__index_cleanup.sql](event-sourcing-app/src/main/resources/db/migration/V10__index_cleanup.sql) &mdash; Drops redundant indexes and optimizes DLQ pagination index.
 
 ### <a id="5-3"></a>Class diagrams
 
@@ -596,6 +868,8 @@ To adapt this sample to your domain model, make changes to `event-sourcing-app` 
 No changes to `postgresql-event-sourcing-core` subproject are required.
 
 ## <a id="7"></a>How to run the sample?
+
+### <a id="7-1"></a>Step-by-step setup
 
 1. Download & install [SDKMAN!](https://sdkman.io/install).
 
@@ -625,57 +899,108 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
     docker compose logs -f event-sourcing-app
     ```
    
-7. Run E2E tests and see the output
+7. Run tests (39 unit & integration tests)
+    ```bash
+    ./mvnw clean test
+    ```
+
+8. Run E2E tests and see the output
     ```bash
     E2E_TESTING=true ./mvnw test -pl event-sourcing-app -Dtest=PostgresEventSourcingApplicationE2ETests
     ```
 
-8. Explore the database using the Adminer database management tool at http://localhost:8181.
-   Find the database name, user, and password in the [docker-compose.yml](docker-compose.yml).
-   
-You can also manually call the REST API endpoints.
+9. Explore the database using Adminer at http://localhost:8181.
+   Find the database name, user, and password in [docker-compose.yml](docker-compose.yml).
+
+### <a id="7-2"></a>REST API testing with cURL
 
 1. Install [curl](https://curl.se/) and [jq](https://stedolan.github.io/jq/)
     ```bash
     sudo apt install curl jq
     ```
 
-2. Place new order
+2. Place new order (with idempotent key)
     ```bash
-    ORDER_ID=$(curl -s -X POST http://localhost:8080/orders -d '{"riderId":"63770803-38f4-4594-aec2-4c74918f7165","price":"123.45","route":[{"address":"Kyiv, 17A Polyarna Street","lat":50.51980052414157,"lon":30.467197278948536},{"address":"Kyiv, 18V Novokostyantynivska Street","lat":50.48509161169076,"lon":30.485170724431292}]}' -H 'Content-Type: application/json' | jq -r .orderId)
+    ORDER_ID=$(curl -s -X POST http://localhost:8080/orders \
+      -H 'Content-Type: application/json' \
+      -H 'Idempotency-Key: a1b2c3d4-e5f6-7890-abcd-ef1234567890' \
+      -d '{
+        "riderId": "63770803-38f4-4594-aec2-4c74918f7165",
+        "price": "120.00",
+        "route": [
+          {"address": "Kyiv, 17A Polyarna Street", "lat": 50.51980, "lon": 30.46719},
+          {"address": "Kyiv, 18V Novokostyantynivska Street", "lat": 50.48509, "lon": 30.48517}
+        ]
+      }' | jq -r .orderId)
+    echo "Created Order ID: $ORDER_ID"
     ```
 
-3. Get the placed order
+3. Query the placed order read projection
     ```bash
     curl -s -X GET http://localhost:8080/orders/$ORDER_ID | jq
     ```
 
-4. Accept the order
+4. Adjust the order price (e.g. surge pricing)
     ```bash
-    curl -s -X PUT http://localhost:8080/orders/$ORDER_ID -d '{"status":"ACCEPTED","driverId":"2c068a1a-9263-433f-a70b-067d51b98378"}' -H 'Content-Type: application/json'
+    curl -s -X PUT http://localhost:8080/orders/$ORDER_ID \
+      -H 'Content-Type: application/json' \
+      -d '{"status": "ADJUSTED", "price": "150.00"}' | jq
     ```
 
-5. Get the accepted order
+5. Accept the order with a driver
     ```bash
-    curl -s -X GET http://localhost:8080/orders/$ORDER_ID | jq
+    curl -s -X PUT http://localhost:8080/orders/$ORDER_ID \
+      -H 'Content-Type: application/json' \
+      -d '{"status": "ACCEPTED", "driverId": "2c068a1a-9263-433f-a70b-067d51b98378"}' | jq
     ```
 
 6. Complete the order
     ```bash
-    curl -s -X PUT http://localhost:8080/orders/$ORDER_ID -d '{"status":"COMPLETED"}' -H 'Content-Type: application/json'
+    curl -s -X PUT http://localhost:8080/orders/$ORDER_ID \
+      -H 'Content-Type: application/json' \
+      -d '{"status": "COMPLETED"}' | jq
     ```
 
-7. Get the completed order
+7. Attempt invalid cancellation on completed order (verifies domain invariant rejection)
     ```bash
-    curl -s -X GET http://localhost:8080/orders/$ORDER_ID | jq
+    curl -s -X PUT http://localhost:8080/orders/$ORDER_ID \
+      -H 'Content-Type: application/json' \
+      -d '{"status": "CANCELLED", "reason": "Passenger changed mind"}' | jq
     ```
 
-8. Try to cancel a completed order to simulate business rule violation
+8. Inspect published integration events in Kafka
     ```bash
-    curl -s -X PUT http://localhost:8080/orders/$ORDER_ID -d '{"status":"CANCELLED"}' -H 'Content-Type: application/json' | jq
+    docker compose exec kafka /bin/kafka-console-consumer \
+      --bootstrap-server localhost:9092 \
+      --topic order-events \
+      --from-beginning \
+      --property print.key=true \
+      --timeout-ms 10000
     ```
 
-9. Print integration events
+### <a id="7-3"></a>Day-2 admin operations (DLQ & Projections)
+
+1. View poisoned events in Dead Letter Queue (DLQ):
     ```bash
-    docker compose exec kafka /bin/kafka-console-consumer --bootstrap-server localhost:9092 --topic order-events --from-beginning --property print.key=true --timeout-ms 10000
+    curl -s -X GET http://localhost:8080/admin/subscriptions/dlq | jq
+    ```
+
+2. Replay a dead-letter event after resolving downstream dependency:
+    ```bash
+    curl -s -X POST http://localhost:8080/admin/subscriptions/dlq/1/replay | jq
+    ```
+
+3. Rebuild an individual order read projection from the event stream:
+    ```bash
+    curl -s -X POST http://localhost:8080/admin/projections/orders/$ORDER_ID/rebuild | jq
+    ```
+
+4. Full projection stream rebuild:
+    ```bash
+    curl -s -X POST http://localhost:8080/admin/projections/orders/rebuild | jq
+    ```
+
+5. Scrape Prometheus observability metrics:
+    ```bash
+    curl -s -X GET http://localhost:8080/actuator/prometheus | grep event_sourcing
     ```

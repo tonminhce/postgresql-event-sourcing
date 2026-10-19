@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.Types;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,7 +60,7 @@ public class AggregateRepository {
         return updatedRows > 0;
     }
 
-    public java.util.List<UUID> findAggregateIdsByType(@NonNull String aggregateType) {
+    public List<UUID> findAggregateIdsByType(@NonNull String aggregateType) {
         return jdbcTemplate.query("""
                         SELECT ID
                           FROM ES_AGGREGATE

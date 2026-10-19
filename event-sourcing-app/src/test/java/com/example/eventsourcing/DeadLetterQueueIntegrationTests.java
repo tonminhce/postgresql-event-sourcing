@@ -1,5 +1,8 @@
 package com.example.eventsourcing;
 
+import com.example.eventsourcing.domain.event.OrderCompletedEvent;
+import com.example.eventsourcing.domain.event.OrderPlacedEvent;
+import com.example.eventsourcing.domain.event.OrderPriceAdjustedEvent;
 import eventsourcing.postgresql.domain.event.Event;
 import eventsourcing.postgresql.domain.event.EventWithId;
 import eventsourcing.postgresql.repository.EventRepository;
@@ -83,7 +86,7 @@ class DeadLetterQueueIntegrationTests extends AbstractContainerBaseTest {
             jdbcTemplate.update("INSERT INTO ES_AGGREGATE (ID, VERSION, AGGREGATE_TYPE) VALUES (?, 0, 'ORDER_DLQ_TEST')", aggregateId);
 
             // Event 1 (Normal)
-            eventRepository.appendEvent(com.example.eventsourcing.domain.event.OrderPlacedEvent.builder()
+            eventRepository.appendEvent(OrderPlacedEvent.builder()
                     .aggregateId(aggregateId)
                     .version(1)
                     .riderId(UUID.randomUUID())
@@ -92,14 +95,14 @@ class DeadLetterQueueIntegrationTests extends AbstractContainerBaseTest {
                     .build());
 
             // Event 2 (Poison Pill: version == 2)
-            eventRepository.appendEvent(com.example.eventsourcing.domain.event.OrderPriceAdjustedEvent.builder()
+            eventRepository.appendEvent(OrderPriceAdjustedEvent.builder()
                     .aggregateId(aggregateId)
                     .version(2)
                     .newPrice(new BigDecimal("120.00"))
                     .build());
 
             // Event 3 (Normal: version == 3)
-            eventRepository.appendEvent(com.example.eventsourcing.domain.event.OrderCompletedEvent.builder()
+            eventRepository.appendEvent(OrderCompletedEvent.builder()
                     .aggregateId(aggregateId)
                     .version(3)
                     .build());

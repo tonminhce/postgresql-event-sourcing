@@ -15,6 +15,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import eventsourcing.postgresql.metrics.EventSourcingMetrics;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -30,7 +32,7 @@ public class AggregateStore {
     private final EventRepository eventRepository;
     private final AggregateFactory aggregateFactory;
     private final EventSourcingProperties properties;
-    private final eventsourcing.postgresql.metrics.EventSourcingMetrics metrics;
+    private final EventSourcingMetrics metrics;
 
     public List<EventWithId<Event>> saveAggregate(Aggregate aggregate) {
         log.debug("Saving aggregate {}", aggregate);

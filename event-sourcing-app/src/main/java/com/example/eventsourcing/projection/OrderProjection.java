@@ -65,6 +65,6 @@ public class OrderProjection implements Persistable<UUID>, Serializable {
 
     @Override
     public int hashCode() {
-        return 1;
+        return getClass().hashCode();
     }
 }
