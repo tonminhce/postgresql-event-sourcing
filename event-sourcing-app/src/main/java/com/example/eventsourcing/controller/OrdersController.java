@@ -17,7 +17,6 @@ import eventsourcing.postgresql.domain.command.IdempotencyKeyRecord;
 import eventsourcing.postgresql.service.CommandProcessor;
 import eventsourcing.postgresql.service.command.IdempotencyService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,6 +34,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.springframework.http.HttpStatus.CONFLICT;
 
 @RestController
 @RequestMapping("/orders")
@@ -94,7 +94,7 @@ public class OrdersController {
             var existing = idempotencyService.get(idempotencyKey);
             if (existing.isPresent()) {
                 if (!existing.get().aggregateId().equals(orderId)) {
-                    return ResponseEntity.status(HttpStatus.CONFLICT)
+                    return ResponseEntity.status(CONFLICT)
                             .body(objectMapper.createObjectNode().put("error", "Idempotency-Key already used for a different order"));
                 }
                 return ResponseEntity.status(existing.get().statusCode()).build();

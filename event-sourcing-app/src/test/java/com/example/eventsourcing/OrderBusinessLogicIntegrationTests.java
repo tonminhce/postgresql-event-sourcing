@@ -7,7 +7,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -15,6 +19,8 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.CONFLICT;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -71,7 +77,7 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 String.class
         );
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getStatusCode()).isEqualTo(BAD_REQUEST);
         JsonNode json = objectMapper.readTree(response.getBody());
         assertThat(json.has("error")).isTrue();
         assertThat(json.get("error").asText()).contains("Price must be strictly positive");
@@ -115,7 +121,7 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 String.class
         );
 
-        assertThat(acceptResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(acceptResponse.getStatusCode()).isEqualTo(BAD_REQUEST);
         JsonNode json = objectMapper.readTree(acceptResponse.getBody());
         assertThat(json.get("error").asText()).isEqualTo("Driver cannot accept their own ride request");
     }
@@ -134,7 +140,7 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 new HttpEntity<>("{}", headers),
                 String.class
         );
-        assertThat(noStatusResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(noStatusResponse.getStatusCode()).isEqualTo(BAD_REQUEST);
         assertThat(objectMapper.readTree(noStatusResponse.getBody()).get("error").asText())
                 .isEqualTo("Field 'status' is required");
 
@@ -145,7 +151,7 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 new HttpEntity<>("{\"status\":\"ADJUSTED\"}", headers),
                 String.class
         );
-        assertThat(noPriceResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(noPriceResponse.getStatusCode()).isEqualTo(BAD_REQUEST);
         assertThat(objectMapper.readTree(noPriceResponse.getBody()).get("error").asText())
                 .isEqualTo("Field 'price' is required for ADJUSTED status");
 
@@ -156,7 +162,7 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 new HttpEntity<>("{\"status\":\"ACCEPTED\"}", headers),
                 String.class
         );
-        assertThat(noDriverResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(noDriverResponse.getStatusCode()).isEqualTo(BAD_REQUEST);
         assertThat(objectMapper.readTree(noDriverResponse.getBody()).get("error").asText())
                 .isEqualTo("Field 'driverId' is required for ACCEPTED status");
     }
@@ -197,7 +203,7 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 new HttpEntity<>(acceptPayload, idempHeaders),
                 String.class
         );
-        assertThat(res2.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(res2.getStatusCode()).isEqualTo(CONFLICT);
         assertThat(objectMapper.readTree(res2.getBody()).get("error").asText())
                 .isEqualTo("Idempotency-Key already used for a different order");
     }

@@ -1,6 +1,10 @@
 package com.example.eventsourcing.domain;
 
-import com.example.eventsourcing.domain.command.*;
+import com.example.eventsourcing.domain.command.AcceptOrderCommand;
+import com.example.eventsourcing.domain.command.AdjustOrderPriceCommand;
+import com.example.eventsourcing.domain.command.CancelOrderCommand;
+import com.example.eventsourcing.domain.command.CompleteOrderCommand;
+import com.example.eventsourcing.domain.command.PlaceOrderCommand;
 import com.example.eventsourcing.dto.OrderStatus;
 import com.example.eventsourcing.dto.WaypointDto;
 import eventsourcing.postgresql.error.AggregateStateException;

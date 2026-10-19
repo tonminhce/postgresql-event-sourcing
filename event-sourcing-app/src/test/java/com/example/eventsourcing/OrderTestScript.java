@@ -12,13 +12,22 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.boot.test.json.BasicJsonTester;
 import org.springframework.boot.resttestclient.TestRestTemplate;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.test.utils.KafkaTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Duration;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.UUID;
 import java.util.stream.StreamSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
