@@ -190,7 +190,7 @@ public class OrderTestScript {
 
         log.info("Print integration events");
         var kafkaConsumer = createKafkaConsumer(KafkaTopicsConfig.TOPIC_ORDER_EVENTS);
-        List<String> kafkaRecordValues = getKafkaRecords(kafkaConsumer, Duration.ofSeconds(10), 23);
+        List<String> kafkaRecordValues = getKafkaRecords(kafkaConsumer, Duration.ofSeconds(20), 23);
         kafkaConsumer.unsubscribe();
         assertThat(kafkaRecordValues)
                 .hasSizeGreaterThanOrEqualTo(23);

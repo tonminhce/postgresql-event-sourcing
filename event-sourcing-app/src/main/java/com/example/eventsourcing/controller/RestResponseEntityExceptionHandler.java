@@ -46,5 +46,12 @@ public class RestResponseEntityExceptionHandler extends ResponseEntityExceptionH
                 .body(objectMapper.createObjectNode()
                         .put("error", aggregateStateException.getMessage()));
     }
+
+    @ExceptionHandler(value = {IllegalArgumentException.class})
+    protected ResponseEntity<JsonNode> handleIllegalArgument(IllegalArgumentException ex) {
+        return ResponseEntity.badRequest()
+                .body(objectMapper.createObjectNode()
+                        .put("error", ex.getMessage()));
+    }
 }
 

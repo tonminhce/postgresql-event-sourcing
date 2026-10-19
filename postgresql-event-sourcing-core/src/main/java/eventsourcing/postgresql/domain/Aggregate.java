@@ -77,11 +77,18 @@ public abstract class Aggregate {
         invoke(command, "process");
     }
 
-    @SneakyThrows(InvocationTargetException.class)
     private void invoke(Object o, String methodName) {
         try {
             Method method = this.getClass().getMethod(methodName, o.getClass());
             method.invoke(this, o);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            } else if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new RuntimeException(cause);
         } catch (NoSuchMethodException | IllegalAccessException e) {
             throw new UnsupportedOperationException(
                     "Aggregate %s doesn't support %s(%s)".formatted(

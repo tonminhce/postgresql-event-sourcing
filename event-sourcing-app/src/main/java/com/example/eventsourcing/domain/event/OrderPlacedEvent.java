@@ -30,7 +30,7 @@ public final class OrderPlacedEvent extends Event {
         super(aggregateId, version);
         this.riderId = riderId;
         this.price = price;
-        this.route = List.copyOf(route);
+        this.route = route != null ? List.copyOf(route) : List.of();
     }
 
     @Nonnull

@@ -14,10 +14,13 @@ public class PlaceOrderCommandHandler implements CommandHandler<PlaceOrderComman
 
     @Override
     public void handle(Aggregate aggregate, Command command) {
-        // Add additional business logic here.
+        PlaceOrderCommand placeOrderCommand = (PlaceOrderCommand) command;
+        log.info("Processing ride order request: aggregateId={}, riderId={}, price={}",
+                placeOrderCommand.getAggregateId(), placeOrderCommand.getRiderId(), placeOrderCommand.getPrice());
+
         aggregate.process(command);
-        // Also, add additional business logic here.
-        // Read other aggregates using AggregateStore.
+
+        log.info("Successfully placed ride order: aggregateId={}", aggregate.getAggregateId());
     }
 
     @Nonnull

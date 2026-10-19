@@ -34,6 +34,9 @@ public class IdempotencyKeyRepository {
     }
 
     public void save(IdempotencyKeyRecord record) {
+        String responseJson = (record.responseBody() != null && !record.responseBody().isBlank())
+                ? record.responseBody()
+                : "{}";
         jdbcTemplate.update("""
                         INSERT INTO ES_IDEMPOTENCY_KEY (KEY, COMMAND_TYPE, AGGREGATE_ID, RESPONSE_BODY, STATUS_CODE)
                         VALUES (:key, :commandType, :aggregateId, :responseBody::jsonb, :statusCode)
@@ -43,7 +46,7 @@ public class IdempotencyKeyRepository {
                         "key", record.key(),
                         "commandType", record.commandType(),
                         "aggregateId", record.aggregateId(),
-                        "responseBody", record.responseBody(),
+                        "responseBody", responseJson,
                         "statusCode", record.statusCode()
                 ));
     }

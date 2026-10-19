@@ -30,6 +30,7 @@ public class OrderAggregate extends Aggregate {
     private OffsetDateTime acceptedDate;
     private OffsetDateTime completedDate;
     private OffsetDateTime cancelledDate;
+    private String cancellationReason;
 
     @JsonCreator
     public OrderAggregate(@NonNull UUID aggregateId, int version) {
@@ -39,6 +40,26 @@ public class OrderAggregate extends Aggregate {
     public void process(PlaceOrderCommand command) {
         if (status != null) {
             throw new AggregateStateException("Can't place an order, it's already in status %s", status);
+        }
+        if (command.getRiderId() == null) {
+            throw new IllegalArgumentException("Rider ID cannot be null");
+        }
+        if (command.getPrice() == null || command.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Price must be strictly positive");
+        }
+        if (command.getRoute() == null) {
+            throw new IllegalArgumentException("Route cannot be null");
+        }
+        for (WaypointDto wp : command.getRoute()) {
+            if (wp == null) {
+                throw new IllegalArgumentException("Waypoint cannot be null");
+            }
+            if (Double.isNaN(wp.latitude()) || wp.latitude() < -90.0 || wp.latitude() > 90.0) {
+                throw new IllegalArgumentException("Invalid latitude: " + wp.latitude());
+            }
+            if (Double.isNaN(wp.longitude()) || wp.longitude() < -180.0 || wp.longitude() > 180.0) {
+                throw new IllegalArgumentException("Invalid longitude: " + wp.longitude());
+            }
         }
         applyChange(OrderPlacedEvent.builder()
                 .aggregateId(aggregateId)
@@ -53,6 +74,12 @@ public class OrderAggregate extends Aggregate {
         if (!EnumSet.of(OrderStatus.PLACED, OrderStatus.ADJUSTED).contains(status)) {
             throw new AggregateStateException("Can't adjust the price of an order in status %s", status);
         }
+        if (command.getNewPrice() == null || command.getNewPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("New price must be strictly positive");
+        }
+        if (this.price != null && this.price.compareTo(command.getNewPrice()) == 0) {
+            throw new IllegalArgumentException("New price cannot be identical to current price");
+        }
         applyChange(OrderPriceAdjustedEvent.builder()
                 .aggregateId(aggregateId)
                 .version(getNextVersion())
@@ -61,8 +88,14 @@ public class OrderAggregate extends Aggregate {
     }
 
     public void process(AcceptOrderCommand command) {
-        if (EnumSet.of(OrderStatus.ACCEPTED, OrderStatus.COMPLETED, OrderStatus.CANCELLED).contains(status)) {
+        if (!EnumSet.of(OrderStatus.PLACED, OrderStatus.ADJUSTED).contains(status)) {
             throw new AggregateStateException("Can't accept order in status %s", status);
+        }
+        if (command.getDriverId() == null) {
+            throw new IllegalArgumentException("Driver ID cannot be null");
+        }
+        if (command.getDriverId().equals(this.riderId)) {
+            throw new IllegalArgumentException("Driver cannot accept their own ride request");
         }
         applyChange(OrderAcceptedEvent.builder()
                 .aggregateId(aggregateId)
@@ -74,6 +107,9 @@ public class OrderAggregate extends Aggregate {
     public void process(CompleteOrderCommand command) {
         if (status != OrderStatus.ACCEPTED) {
             throw new AggregateStateException("Order in status %s can't be completed", status);
+        }
+        if (this.driverId == null) {
+            throw new AggregateStateException("Cannot complete an order without an assigned driver");
         }
         applyChange(OrderCompletedEvent.builder()
                 .aggregateId(aggregateId)
@@ -88,6 +124,7 @@ public class OrderAggregate extends Aggregate {
         applyChange(OrderCancelledEvent.builder()
                 .aggregateId(aggregateId)
                 .version(getNextVersion())
+                .reason(command.getReason())
                 .build());
     }
 
@@ -118,6 +155,7 @@ public class OrderAggregate extends Aggregate {
     public void apply(OrderCancelledEvent event) {
         this.status = OrderStatus.CANCELLED;
         this.cancelledDate = event.getCreatedDate();
+        this.cancellationReason = event.getReason();
     }
 
     @NonNull

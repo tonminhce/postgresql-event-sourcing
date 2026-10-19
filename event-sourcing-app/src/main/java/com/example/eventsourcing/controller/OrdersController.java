@@ -2,6 +2,7 @@ package com.example.eventsourcing.controller;
 
 import com.example.eventsourcing.domain.command.*;
 import com.example.eventsourcing.dto.OrderStatus;
+import com.example.eventsourcing.dto.WaypointDto;
 import com.example.eventsourcing.projection.OrderProjection;
 import com.example.eventsourcing.repository.OrderProjectionRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -35,6 +36,11 @@ public class OrdersController {
     public ResponseEntity<JsonNode> placeOrder(
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody JsonNode request) throws IOException {
+        if (request == null || !request.hasNonNull("riderId") || !request.hasNonNull("price")) {
+            return ResponseEntity.badRequest()
+                    .body(objectMapper.createObjectNode().put("error", "Fields 'riderId' and 'price' are required"));
+        }
+
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             var existing = idempotencyService.get(idempotencyKey);
             if (existing.isPresent()) {
@@ -47,14 +53,16 @@ public class OrdersController {
                 ? UUID.nameUUIDFromBytes(idempotencyKey.getBytes(java.nio.charset.StandardCharsets.UTF_8))
                 : null;
 
+        List<WaypointDto> route = (request.hasNonNull("route"))
+                ? objectMapper.readValue(objectMapper.treeAsTokens(request.get("route")), new TypeReference<>() {})
+                : List.of();
+
         var order = commandProcessor.process(new PlaceOrderCommand(
                 deterministicOrderId,
                 UUID.fromString(request.get("riderId").asText()),
                 new BigDecimal(request.get("price").asText()),
-                objectMapper.readValue(
-                        objectMapper.treeAsTokens(request.get("route")), new TypeReference<>() {
-                        }
-                )));
+                route
+        ));
 
         JsonNode responseBody = objectMapper.createObjectNode()
                 .put("orderId", order.getAggregateId().toString());
@@ -74,35 +82,79 @@ public class OrdersController {
     }
 
     @PutMapping("/{orderId}")
-    public ResponseEntity<Object> modifyOrder(@PathVariable UUID orderId, @RequestBody JsonNode request) {
-        OrderStatus newStatus = OrderStatus.valueOf(request.get("status").asText());
+    public ResponseEntity<Object> modifyOrder(
+            @PathVariable UUID orderId,
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody JsonNode request) {
+        if (request == null || !request.hasNonNull("status")) {
+            return ResponseEntity.badRequest()
+                    .body(objectMapper.createObjectNode().put("error", "Field 'status' is required"));
+        }
+
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            var existing = idempotencyService.get(idempotencyKey);
+            if (existing.isPresent()) {
+                if (!existing.get().aggregateId().equals(orderId)) {
+                    return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                            .body(objectMapper.createObjectNode().put("error", "Idempotency-Key already used for a different order"));
+                }
+                return ResponseEntity.status(existing.get().statusCode()).build();
+            }
+        }
+
+        OrderStatus newStatus;
+        try {
+            newStatus = OrderStatus.valueOf(request.get("status").asText());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(objectMapper.createObjectNode().put("error", "Invalid status value: " + request.get("status").asText()));
+        }
+
         switch (newStatus) {
             case ADJUSTED -> {
+                if (!request.hasNonNull("price")) {
+                    return ResponseEntity.badRequest()
+                            .body(objectMapper.createObjectNode().put("error", "Field 'price' is required for ADJUSTED status"));
+                }
                 commandProcessor.process(new AdjustOrderPriceCommand(
                         orderId,
                         new BigDecimal(request.get("price").asText())
                 ));
-                return ResponseEntity.ok().build();
             }
             case ACCEPTED -> {
+                if (!request.hasNonNull("driverId")) {
+                    return ResponseEntity.badRequest()
+                            .body(objectMapper.createObjectNode().put("error", "Field 'driverId' is required for ACCEPTED status"));
+                }
                 commandProcessor.process(new AcceptOrderCommand(
                         orderId,
                         UUID.fromString(request.get("driverId").asText())
                 ));
-                return ResponseEntity.ok().build();
             }
             case COMPLETED -> {
                 commandProcessor.process(new CompleteOrderCommand(orderId));
-                return ResponseEntity.ok().build();
             }
             case CANCELLED -> {
-                commandProcessor.process(new CancelOrderCommand(orderId));
-                return ResponseEntity.ok().build();
+                String reason = request.has("reason") ? request.get("reason").asText() : null;
+                commandProcessor.process(new CancelOrderCommand(orderId, reason));
             }
             default -> {
                 return ResponseEntity.badRequest().build();
             }
         }
+
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            idempotencyService.record(new IdempotencyKeyRecord(
+                    idempotencyKey,
+                    "ModifyOrder:" + newStatus,
+                    orderId,
+                    "{}",
+                    200,
+                    OffsetDateTime.now()
+            ));
+        }
+
+        return ResponseEntity.ok().build();
     }
 
     @GetMapping("/")
