@@ -23,6 +23,12 @@ event-sourcing:
       nth-event: 10
   # Available subscription: polling, postgres-channel
   subscriptions: postgres-channel
+  # Batch size for subscription processor pagination
+  subscription-batch-size: 500
+  # Max retries before routing poison-pill event to Dead Letter Queue
+  subscription-max-retries: 3
+  # Initial exponential backoff delay in milliseconds
+  subscription-retry-backoff-ms: 100
   polling-subscriptions:
     polling-initial-delay: PT1S
     polling-interval: PT1S
