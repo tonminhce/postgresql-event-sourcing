@@ -1,3 +1,0 @@
-rootProject.name = 'postgresql-event-sourcing'
-include 'postgresql-event-sourcing-core',
-        'event-sourcing-app'

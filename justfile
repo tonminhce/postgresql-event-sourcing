@@ -10,7 +10,7 @@ jib:
     ./mvnw compile jib:dockerBuild -pl event-sourcing-app
 
 up:
-    docker compose --env-file gradle.properties up -d --scale event-sourcing-app=2
+    docker compose up -d --scale event-sourcing-app=2
 
 down:
     docker compose down -v

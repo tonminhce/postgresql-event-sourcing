@@ -27,7 +27,7 @@
   - [Adding new asynchronous event handlers](#4-8)
   - [Drawbacks](#4-9)
 - [Project structure](#5)
-  - [Gradle subprojects](#5-1)
+  - [Maven modules](#5-1)
   - [Database schema migrations](#5-2)
   - [Class diagrams](#5-3)
     - [Class diagram of the domain model](#5-3-1)
@@ -551,19 +551,20 @@ Using PostgreSQL as an event store has a lot of advantages, but there are also d
 
 ## <a id="5"></a>Project structure
 
-### <a id="5-1"></a>Gradle subprojects
+### <a id="5-1"></a>Maven modules
 
 This reference implementation can be easily extended to comply with your domain model.
 
-Event sourcing related code and application specific code are located in separate Gradle subprojects:
+Event sourcing related code and application specific code are located in separate Maven modules:
 * [`postgresql-event-sourcing-core`](postgresql-event-sourcing-core): event sourcing and PostgreSQL related code, a shared library, `eventsourcing.postgresql` package,
 * [`event-sourcing-app`](event-sourcing-app): application specific code, a simplified ride-hailing sample, `com.example.eventsourcing` package.
 
 `event-sourcing-app` depends on `postgresql-event-sourcing-core`:
-```groovy
-dependencies {
-    implementation project(':postgresql-event-sourcing-core')
-}
+```xml
+<dependency>
+    <groupId>com.example</groupId>
+    <artifactId>postgresql-event-sourcing-core</artifactId>
+</dependency>
 ```
 
 ### <a id="5-2"></a>Database schema migrations
@@ -615,7 +616,7 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
 
 5. Run PostgreSQL, Kafka and event-sourcing-app
     ```bash
-    docker compose --env-file gradle.properties up -d --scale event-sourcing-app=2
+    docker compose up -d --scale event-sourcing-app=2
     # wait a few minutes
     ```
 
