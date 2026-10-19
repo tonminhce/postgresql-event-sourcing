@@ -65,6 +65,7 @@ public class PostgresChannelEventSubscriptionProcessor {
 
                         try {
                             this.connection = conn;
+                            long lastSweepTime = System.currentTimeMillis();
                             while (isActive()) {
                                 PGNotification[] notifications = conn.getNotifications(30000);
                                 // Unfortunately, there is no good way of interrupting a notification
@@ -79,9 +80,11 @@ public class PostgresChannelEventSubscriptionProcessor {
                                                 .filter(eventHandler -> eventHandler.getAggregateType().equals(parameter))
                                                 .forEach(this::processNewEvents);
                                     }
-                                } else {
-                                    // Periodic safety sweep in case notifications were dropped during network flaps or queue overflow
+                                }
+                                // Periodic safety sweep runs every 30s regardless of notification arrivals
+                                if (System.currentTimeMillis() - lastSweepTime >= 30000 || notifications == null || notifications.length == 0) {
                                     this.eventHandlers.forEach(this::processNewEvents);
+                                    lastSweepTime = System.currentTimeMillis();
                                 }
                             }
                         } finally {
@@ -91,7 +94,13 @@ public class PostgresChannelEventSubscriptionProcessor {
                         // The getNotifications method does not throw a meaningful message on interruption.
                         // Therefore, we do not log an error, unless it occurred while active.
                         if (isActive()) {
-                            log.error("Failed to poll notifications from Postgres database", e);
+                            log.error("Failed to poll notifications from Postgres database. Backing off before reconnect...", e);
+                            try {
+                                Thread.sleep(1000);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                return;
+                            }
                         }
                     }
                 }

@@ -21,6 +21,7 @@ public class EventSubscriptionDeadLetterRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void saveDeadLetter(String subscriptionName,
                                String aggregateType,
                                EventWithId<Event> eventWithId,

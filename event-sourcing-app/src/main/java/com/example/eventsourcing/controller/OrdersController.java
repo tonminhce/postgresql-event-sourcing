@@ -43,7 +43,12 @@ public class OrdersController {
             }
         }
 
+        UUID deterministicOrderId = (idempotencyKey != null && !idempotencyKey.isBlank())
+                ? UUID.nameUUIDFromBytes(idempotencyKey.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                : null;
+
         var order = commandProcessor.process(new PlaceOrderCommand(
+                deterministicOrderId,
                 UUID.fromString(request.get("riderId").asText()),
                 new BigDecimal(request.get("price").asText()),
                 objectMapper.readValue(

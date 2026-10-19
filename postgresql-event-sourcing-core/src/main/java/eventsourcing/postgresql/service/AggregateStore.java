@@ -58,8 +58,8 @@ public class AggregateStore {
             EventWithId<Event> newEvent = eventRepository.appendEvent(event);
             metrics.recordAppendDuration(aggregateType, System.nanoTime() - startNanos);
             newEvents.add(newEvent);
-            createAggregateSnapshot(snapshotting, aggregate);
         }
+        createAggregateSnapshot(snapshotting, aggregate);
         return newEvents;
     }
 

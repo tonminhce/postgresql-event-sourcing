@@ -79,6 +79,7 @@ public class AggregateRepository {
                         ON CONFLICT (AGGREGATE_ID) DO UPDATE
                                SET VERSION = EXCLUDED.VERSION,
                                    JSON_DATA = EXCLUDED.JSON_DATA
+                             WHERE EXCLUDED.VERSION > ES_AGGREGATE_SNAPSHOT.VERSION
                         """,
                 Map.of(
                         "aggregateId", aggregate.getAggregateId(),

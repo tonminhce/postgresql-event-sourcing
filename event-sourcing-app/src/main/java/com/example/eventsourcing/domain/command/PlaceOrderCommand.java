@@ -21,7 +21,14 @@ public final class PlaceOrderCommand extends Command {
     public PlaceOrderCommand(UUID riderId,
                              BigDecimal price,
                              List<WaypointDto> route) {
-        super(AggregateType.ORDER.toString(), generateAggregateId());
+        this(generateAggregateId(), riderId, price, route);
+    }
+
+    public PlaceOrderCommand(UUID orderId,
+                             UUID riderId,
+                             BigDecimal price,
+                             List<WaypointDto> route) {
+        super(AggregateType.ORDER.toString(), orderId != null ? orderId : generateAggregateId());
         this.riderId = riderId;
         this.price = price;
         this.route = route;
@@ -31,3 +38,4 @@ public final class PlaceOrderCommand extends Command {
         return UUID.randomUUID();
     }
 }
+

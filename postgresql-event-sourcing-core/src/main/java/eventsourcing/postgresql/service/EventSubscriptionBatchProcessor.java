@@ -94,6 +94,7 @@ public class EventSubscriptionBatchProcessor {
                         metrics.recordDlqEvent(subscriptionName, eventHandler.getAggregateType());
                     } catch (Exception dlqEx) {
                         log.error("Failed to save event to Dead Letter Queue!", dlqEx);
+                        throw new RuntimeException("Failed to save event to Dead Letter Queue!", dlqEx);
                     }
                     return;
                 }

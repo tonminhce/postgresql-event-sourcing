@@ -42,13 +42,21 @@ public class OrderProjectionRebuildService {
     public int rebuildAllOrders() {
         log.info("Starting complete rebuild of Order projections...");
         List<UUID> orderIds = aggregateRepository.findAggregateIdsByType(AggregateType.ORDER.name());
-        for (UUID orderId : orderIds) {
+        int batchSize = 50;
+        for (int i = 0; i < orderIds.size(); i++) {
+            UUID orderId = orderIds.get(i);
             OrderAggregate aggregate = (OrderAggregate) aggregateStore.readAggregate(AggregateType.ORDER.name(), orderId);
             OrderProjection projection = orderMapper.toProjection(aggregate);
             entityManager.merge(projection);
+            if ((i + 1) % batchSize == 0) {
+                entityManager.flush();
+                entityManager.clear();
+            }
         }
         entityManager.flush();
+        entityManager.clear();
         log.info("Successfully rebuilt {} Order projection(s).", orderIds.size());
         return orderIds.size();
     }
 }
+
