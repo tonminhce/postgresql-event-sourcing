@@ -60,6 +60,22 @@ public class EventSubscriptionRepository {
         return updatedRows > 0;
     }
 
+    public long calculateSubscriptionLag(String subscriptionName, String aggregateType) {
+        Long lag = jdbcTemplate.queryForObject("""
+                        SELECT COALESCE((SELECT MAX(e.ID) FROM ES_EVENT e JOIN ES_AGGREGATE a ON a.ID = e.AGGREGATE_ID WHERE a.AGGREGATE_TYPE = :aggregateType), 0)
+                               - COALESCE(s.LAST_EVENT_ID, 0) AS LAG
+                          FROM ES_EVENT_SUBSCRIPTION s
+                         WHERE s.SUBSCRIPTION_NAME = :subscriptionName
+                        """,
+                Map.of(
+                        "subscriptionName", subscriptionName,
+                        "aggregateType", aggregateType
+                ),
+                Long.class
+        );
+        return lag != null ? Math.max(0, lag) : 0L;
+    }
+
     private EventSubscriptionCheckpoint toEventSubscriptionCheckpoint(ResultSet rs, int rowNum) throws SQLException {
         String lastProcessedTransactionId = rs.getString("LAST_TRANSACTION_ID");
         long lastProcessedEventId = rs.getLong("LAST_EVENT_ID");

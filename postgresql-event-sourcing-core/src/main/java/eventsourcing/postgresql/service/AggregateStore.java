@@ -30,6 +30,7 @@ public class AggregateStore {
     private final EventRepository eventRepository;
     private final AggregateFactory aggregateFactory;
     private final EventSourcingProperties properties;
+    private final eventsourcing.postgresql.metrics.EventSourcingMetrics metrics;
 
     public List<EventWithId<Event>> saveAggregate(Aggregate aggregate) {
         log.debug("Saving aggregate {}", aggregate);
@@ -41,6 +42,7 @@ public class AggregateStore {
         int expectedVersion = aggregate.getBaseVersion();
         int newVersion = aggregate.getVersion();
         if (!aggregateRepository.checkAndUpdateAggregateVersion(aggregateId, expectedVersion, newVersion)) {
+            metrics.recordOccConflict(aggregateType);
             log.warn("Optimistic concurrency control error in aggregate {} {}: " +
                      "actual version doesn't match expected version {}",
                     aggregateType, aggregateId, expectedVersion);
@@ -52,7 +54,9 @@ public class AggregateStore {
         List<EventWithId<Event>> newEvents = new ArrayList<>();
         for (Event event : changes) {
             log.info("Appending {} event: {}", aggregateType, event);
+            long startNanos = System.nanoTime();
             EventWithId<Event> newEvent = eventRepository.appendEvent(event);
+            metrics.recordAppendDuration(aggregateType, System.nanoTime() - startNanos);
             newEvents.add(newEvent);
             createAggregateSnapshot(snapshotting, aggregate);
         }

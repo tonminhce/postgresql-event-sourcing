@@ -24,6 +24,7 @@ public class EventSubscriptionBatchProcessor {
     private final EventSubscriptionDeadLetterRepository deadLetterRepository;
     private final EventRepository eventRepository;
     private final EventSourcingProperties properties;
+    private final eventsourcing.postgresql.metrics.EventSourcingMetrics metrics;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean processBatch(AsyncEventHandler eventHandler, String subscriptionName, int batchSize) {
@@ -39,14 +40,21 @@ public class EventSubscriptionBatchProcessor {
                     );
                     log.debug("Fetched {} new event(s) for subscription {}", events.size(), subscriptionName);
                     if (events.isEmpty()) {
+                        long lag = subscriptionRepository.calculateSubscriptionLag(subscriptionName, eventHandler.getAggregateType());
+                        metrics.recordSubscriptionLag(subscriptionName, eventHandler.getAggregateType(), lag);
                         return false;
                     }
 
+                    long startNanos = System.nanoTime();
                     for (EventWithId<Event> eventWithId : events) {
                         handleWithRetry(eventHandler, subscriptionName, eventWithId);
                         subscriptionRepository.updateEventSubscription(
                                 subscriptionName, eventWithId.transactionId(), eventWithId.id());
                     }
+                    metrics.recordHandlerDuration(subscriptionName, eventHandler.getAggregateType(), System.nanoTime() - startNanos);
+
+                    long lag = subscriptionRepository.calculateSubscriptionLag(subscriptionName, eventHandler.getAggregateType());
+                    metrics.recordSubscriptionLag(subscriptionName, eventHandler.getAggregateType(), lag);
 
                     return events.size() == batchSize;
                 })
@@ -83,6 +91,7 @@ public class EventSubscriptionBatchProcessor {
                                 ex,
                                 attempts
                         );
+                        metrics.recordDlqEvent(subscriptionName, eventHandler.getAggregateType());
                     } catch (Exception dlqEx) {
                         log.error("Failed to save event to Dead Letter Queue!", dlqEx);
                     }

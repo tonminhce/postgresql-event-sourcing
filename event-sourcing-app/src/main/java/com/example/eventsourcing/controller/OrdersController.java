@@ -12,8 +12,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import eventsourcing.postgresql.domain.command.IdempotencyKeyRecord;
+import eventsourcing.postgresql.service.command.IdempotencyService;
+
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,9 +29,20 @@ public class OrdersController {
     private final ObjectMapper objectMapper;
     private final CommandProcessor commandProcessor;
     private final OrderProjectionRepository orderProjectionRepository;
+    private final IdempotencyService idempotencyService;
 
     @PostMapping
-    public ResponseEntity<JsonNode> placeOrder(@RequestBody JsonNode request) throws IOException {
+    public ResponseEntity<JsonNode> placeOrder(
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody JsonNode request) throws IOException {
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            var existing = idempotencyService.get(idempotencyKey);
+            if (existing.isPresent()) {
+                return ResponseEntity.status(existing.get().statusCode())
+                        .body(objectMapper.readTree(existing.get().responseBody()));
+            }
+        }
+
         var order = commandProcessor.process(new PlaceOrderCommand(
                 UUID.fromString(request.get("riderId").asText()),
                 new BigDecimal(request.get("price").asText()),
@@ -35,9 +50,22 @@ public class OrdersController {
                         objectMapper.treeAsTokens(request.get("route")), new TypeReference<>() {
                         }
                 )));
-        return ResponseEntity.ok()
-                .body(objectMapper.createObjectNode()
-                        .put("orderId", order.getAggregateId().toString()));
+
+        JsonNode responseBody = objectMapper.createObjectNode()
+                .put("orderId", order.getAggregateId().toString());
+
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            idempotencyService.record(new IdempotencyKeyRecord(
+                    idempotencyKey,
+                    "PlaceOrderCommand",
+                    order.getAggregateId(),
+                    objectMapper.writeValueAsString(responseBody),
+                    200,
+                    OffsetDateTime.now()
+            ));
+        }
+
+        return ResponseEntity.ok().body(responseBody);
     }
 
     @PutMapping("/{orderId}")

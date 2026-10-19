@@ -59,6 +59,18 @@ public class AggregateRepository {
         return updatedRows > 0;
     }
 
+    public java.util.List<UUID> findAggregateIdsByType(@NonNull String aggregateType) {
+        return jdbcTemplate.query("""
+                        SELECT ID
+                          FROM ES_AGGREGATE
+                         WHERE AGGREGATE_TYPE = :aggregateType
+                         ORDER BY ID ASC
+                        """,
+                Map.of("aggregateType", aggregateType),
+                (rs, rowNum) -> rs.getObject("ID", UUID.class)
+        );
+    }
+
     @SneakyThrows
     public void createAggregateSnapshot(@NonNull Aggregate aggregate) {
         jdbcTemplate.update("""

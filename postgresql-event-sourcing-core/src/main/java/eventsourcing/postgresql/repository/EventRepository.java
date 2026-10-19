@@ -111,6 +111,22 @@ public class EventRepository {
                 this::toEvent);
     }
 
+    public java.util.Optional<EventWithId<Event>> findEventById(long eventId) {
+        List<EventWithId<Event>> result = jdbcTemplate.query("""
+                        SELECT ID,
+                               TRANSACTION_ID::text,
+                               EVENT_TYPE,
+                               JSON_DATA,
+                               METADATA
+                          FROM ES_EVENT
+                         WHERE ID = :eventId
+                        """,
+                Map.of("eventId", eventId),
+                this::toEvent
+        );
+        return result.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(result.get(0));
+    }
+
     @SuppressWarnings("unchecked")
     @SneakyThrows
     private <T extends Event> EventWithId<T> toEvent(ResultSet rs, int rowNum) {

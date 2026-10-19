@@ -38,3 +38,15 @@ event-sourcing:
   polling-subscriptions:
     polling-initial-delay: PT1S
     polling-interval: PT1S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: postgres-event-sourcing
