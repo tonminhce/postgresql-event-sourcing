@@ -66,19 +66,22 @@ public class PostgresChannelEventSubscriptionProcessor {
                         try {
                             this.connection = conn;
                             while (isActive()) {
-                                PGNotification[] notifications = conn.getNotifications(0);
+                                PGNotification[] notifications = conn.getNotifications(30000);
                                 // Unfortunately, there is no good way of interrupting a notification
                                 // poll but by closing its connection.
                                 if (!isActive()) {
                                     return;
                                 }
-                                if (notifications != null) {
+                                if (notifications != null && notifications.length > 0) {
                                     for (PGNotification notification : notifications) {
                                         String parameter = notification.getParameter();
                                         eventHandlers.stream()
                                                 .filter(eventHandler -> eventHandler.getAggregateType().equals(parameter))
                                                 .forEach(this::processNewEvents);
                                     }
+                                } else {
+                                    // Periodic safety sweep in case notifications were dropped during network flaps or queue overflow
+                                    this.eventHandlers.forEach(this::processNewEvents);
                                 }
                             }
                         } finally {

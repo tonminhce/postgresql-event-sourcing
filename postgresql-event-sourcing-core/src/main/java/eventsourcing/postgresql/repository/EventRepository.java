@@ -35,7 +35,7 @@ public class EventRepository {
     public <T extends Event> EventWithId<T> appendEvent(@NonNull Event event) {
         List<EventWithId<T>> result = jdbcTemplate.query("""
                         INSERT INTO ES_EVENT (TRANSACTION_ID, AGGREGATE_ID, VERSION, EVENT_TYPE, JSON_DATA)
-                        VALUES(pg_current_xact_id(), :aggregateId, :version, :eventType, :jsonObj::json)
+                        VALUES(pg_current_xact_id(), :aggregateId, :version, :eventType, :jsonObj::jsonb)
                         RETURNING ID, TRANSACTION_ID::text, EVENT_TYPE, JSON_DATA
                         """,
                 Map.of(
@@ -74,6 +74,13 @@ public class EventRepository {
     public List<EventWithId<Event>> readEventsAfterCheckpoint(@NonNull String aggregateType,
                                                               @NonNull BigInteger lastProcessedTransactionId,
                                                               long lastProcessedEventId) {
+        return readEventsAfterCheckpoint(aggregateType, lastProcessedTransactionId, lastProcessedEventId, Integer.MAX_VALUE);
+    }
+
+    public List<EventWithId<Event>> readEventsAfterCheckpoint(@NonNull String aggregateType,
+                                                              @NonNull BigInteger lastProcessedTransactionId,
+                                                              long lastProcessedEventId,
+                                                              int batchSize) {
         return jdbcTemplate.query("""
                         SELECT e.ID,
                                e.TRANSACTION_ID::text,
@@ -85,11 +92,13 @@ public class EventRepository {
                            AND (e.TRANSACTION_ID, e.ID) > (:lastProcessedTransactionId::xid8, :lastProcessedEventId)
                            AND e.TRANSACTION_ID < pg_snapshot_xmin(pg_current_snapshot())
                          ORDER BY e.TRANSACTION_ID ASC, e.ID ASC
+                         LIMIT :batchSize
                         """,
                 Map.of(
                         "aggregateType", aggregateType,
                         "lastProcessedTransactionId", lastProcessedTransactionId.toString(),
-                        "lastProcessedEventId", lastProcessedEventId
+                        "lastProcessedEventId", lastProcessedEventId,
+                        "batchSize", batchSize
                 ),
                 this::toEvent);
     }

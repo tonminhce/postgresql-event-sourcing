@@ -63,7 +63,7 @@ public class AggregateRepository {
     public void createAggregateSnapshot(@NonNull Aggregate aggregate) {
         jdbcTemplate.update("""
                         INSERT INTO ES_AGGREGATE_SNAPSHOT (AGGREGATE_ID, VERSION, JSON_DATA)
-                        VALUES (:aggregateId, :version, :jsonObj::json)
+                        VALUES (:aggregateId, :version, :jsonObj::jsonb)
                         """,
                 Map.of(
                         "aggregateId", aggregate.getAggregateId(),
