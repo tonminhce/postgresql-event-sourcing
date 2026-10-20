@@ -51,6 +51,7 @@
   - [Step-by-step setup](#7-1)
   - [REST API testing with cURL](#7-2)
   - [Day-2 admin operations (DLQ & Projections)](#7-3)
+  - [API testing with Bruno](#7-4)
 
 <!-- Table of contents is made with https://github.com/eugene-khyst/md-toc-cli -->
 
@@ -739,13 +740,22 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
     sdk list java
     sdk install java 25-tem
     ```
+   Make sure `JAVA_HOME` points to it, the project is compiled with `--release 25`:
+    ```bash
+    export JAVA_HOME="$HOME/.sdkman/candidates/java/25-tem"
+    ./mvnw -v
+    ```
 
 3. Install [Docker](https://docs.docker.com/engine/install/)
    and [Docker Compose](https://docs.docker.com/compose/install/).
 
 4. Build Java project and Docker image
     ```bash
-    ./mvnw clean package
+    # `install` (not `package`) is required: the Jib build below resolves the
+    # postgresql-event-sourcing-core module from the local Maven repository
+    ./mvnw clean install
+    # Jib does not pull the base image on its own
+    docker pull eclipse-temurin:25-jre
     ./mvnw compile jib:dockerBuild -pl event-sourcing-app
     ```
 
@@ -760,7 +770,7 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
     docker compose logs -f event-sourcing-app
     ```
    
-7. Run tests (39 unit & integration tests)
+7. Run tests (45 unit & integration tests)
     ```bash
     ./mvnw clean test
     ```
@@ -865,3 +875,32 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
     ```bash
     curl -s -X GET http://localhost:8080/actuator/prometheus | grep event_sourcing
     ```
+
+### <a id="7-4"></a>API testing with Bruno
+
+The [bruno](bruno) folder contains a [Bruno](https://www.usebruno.com/) collection
+that covers the whole REST surface: the happy path, the idempotency contract
+(IETF RFC 9440 / Stripe), the bean validation errors, the domain invariants of
+the order aggregate, the admin endpoints and the actuator metrics.
+
+1. Import the collection: Bruno -> File -> Import Collection -> select the
+   `bruno` folder, then select the `Local` environment.
+
+2. Run the whole collection from the command line:
+    ```bash
+    npm install -g @usebruno/cli
+    cd bruno
+    bru run --env Local
+    ```
+    It reports 57 requests and 110 assertions, and it is re-runnable: the happy
+    path creates a new order on every run.
+
+| Folder | What it covers |
+| --- | --- |
+| `01 - Happy Path` | Create order, query it, adjust price, accept, complete, cancel |
+| `02 - Idempotency` | Replay, key mismatch, `PUT` idempotency, missing key |
+| `03 - Validation Errors` | Missing fields, non-positive price, invalid coordinates |
+| `04 - Domain Invariants` | Illegal state transitions of the order aggregate |
+| `05 - Not Found & Malformed` | Unknown ids, malformed UUIDs and JSON payloads |
+| `06 - Admin & Operations` | Projection rebuild, dead letter queue |
+| `07 - Actuator Monitoring` | Health, metrics, subscription lag, Prometheus scrape |
