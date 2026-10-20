@@ -1,7 +1,7 @@
 @startuml
 
-scale max 1024 width
-scale max 1100 height
+scale max 1100 width
+scale max 1200 height
 
 set separator none
 
@@ -36,6 +36,22 @@ package eventsourcing.postgresql #DDDDDD {
         #aggregateType: String
         #aggregateId: UUID
       }
+
+      enum IdempotencyStatus {
+        STARTED
+        COMPLETED
+        FAILED
+      }
+
+      class IdempotencyKeyRecord << record >> {
+        key: String
+        aggregateId: UUID
+        statusCode: Integer
+        responseBody: String
+        status: IdempotencyStatus
+        requestHash: String
+        createdAt: OffsetDateTime
+      }
     }
 
     package eventsourcing.postgresql.domain.event {
@@ -43,13 +59,18 @@ package eventsourcing.postgresql #DDDDDD {
       class Event {
         #aggregateId: UUID
         #version: int
-        #createdDate: Instant
-        #metadata: JsonNode
+        #createdDate: OffsetDateTime
+        #metadata: EventMetadata
         {abstract} +getEventType(): String
       }
 
       interface EventTypeMapper {
         getClassByEventType(String): Class
+      }
+
+      interface EventUpcaster {
+        canUpcast(Event): boolean
+        upcast(Event): Event
       }
 
       class EventSubscriptionCheckpoint {
@@ -61,6 +82,20 @@ package eventsourcing.postgresql #DDDDDD {
         id: long
         transactionId: BigInteger
         event: Event
+      }
+
+      class EventSubscriptionDeadLetterRecord << record >> {
+        id: Long
+        subscriptionName: String
+        eventId: Long
+        transactionId: BigInteger
+        aggregateId: UUID
+        eventType: String
+        exceptionClass: String
+        errorMessage: String
+        stackTrace: String
+        payload: String
+        createdDate: OffsetDateTime
       }
     }
   }
@@ -76,10 +111,10 @@ package com.example.eventsourcing {
       -price: BigDecimal
       -route: List<WaypointDto>
       -driverId: UUID
-      -placedDate: Instant
-      -acceptedDate: Instant
-      -completedDate: Instant
-      -cancelledDate: Instant
+      -placedDate: OffsetDateTime
+      -acceptedDate: OffsetDateTime
+      -completedDate: OffsetDateTime
+      -cancelledDate: OffsetDateTime
       -cancellationReason: String
     }
 
@@ -138,6 +173,9 @@ package com.example.eventsourcing {
         -cancellationReason: String
       }
 
+      class SampleOrderPriceAdjustedUpcaster {
+      }
+
       enum EventType {
         ORDER_PLACED
         ORDER_PRICE_ADJUSTED
@@ -154,7 +192,7 @@ package com.example.eventsourcing {
 
   package com.example.eventsourcing.dto {
 
-    class WaypointDto {
+    class WaypointDto << record >> {
       address: String
       latitude: double
       longitude: double
@@ -191,6 +229,9 @@ Event <|-- OrderPriceAdjustedEvent
 Event <|-- OrderAcceptedEvent
 Event <|-- OrderCompletedEvent
 Event <|-- OrderCancelledEvent
+
+EventUpcaster <|.. SampleOrderPriceAdjustedUpcaster
+IdempotencyKeyRecord o-- IdempotencyStatus
 
 EventWithId o-- Event
 

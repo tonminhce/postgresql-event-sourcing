@@ -1,7 +1,7 @@
 @startuml
 
 scale max 1400 width
-scale max 1400 height
+scale max 1500 height
 
 set separator none
 
@@ -53,6 +53,7 @@ package eventsourcing.postgresql #DDDDDD {
     class AggregateStore {
       -aggregateRepository: AggregateRepository
       -eventRepository: EventRepository
+      -eventUpcasterChain: EventUpcasterChain
       +saveAggregate(Aggregate): List<EventWithId>
       +readAggregate(String, UUID): Aggregate
       +readAggregate(String, UUID, Integer): Aggregate
@@ -75,6 +76,7 @@ package eventsourcing.postgresql #DDDDDD {
     class EventSubscriptionDeadLetterService {
       -deadLetterRepository: EventSubscriptionDeadLetterRepository
       +replayDeadLetter(long): boolean
+      +getDeadLetters(Pageable): Page<DeadLetterDto>
     }
 
     class ScheduledEventSubscriptionProcessor {
@@ -108,6 +110,11 @@ package eventsourcing.postgresql #DDDDDD {
     }
 
     package eventsourcing.postgresql.service.event {
+
+      class EventUpcasterChain {
+        -upcasters: List<EventUpcaster>
+        +upcast(EventWithId): EventWithId
+      }
 
       interface SyncEventHandler {
         handleEvents(List<EventWithId>, Aggregate): void
@@ -187,6 +194,15 @@ package com.example.eventsourcing {
       +getOrders(): ResponseEntity<List<OrderProjection>>
       +getOrder(UUID): ResponseEntity<OrderProjection>
     }
+
+    class EventSourcingAdminController {
+      -deadLetterService: EventSubscriptionDeadLetterService
+      -rebuildService: OrderProjectionRebuildService
+      +getDeadLetters(Pageable): ResponseEntity<Page<DeadLetterDto>>
+      +replayDeadLetter(long): ResponseEntity<Void>
+      +rebuildAllProjections(): ResponseEntity<Void>
+      +rebuildProjection(UUID): ResponseEntity<Void>
+    }
   }
 }
 
@@ -208,8 +224,12 @@ OrderMapper <|.left. OrderMapperImpl
 OrdersController o-- CommandProcessor
 OrdersController o-- OrderProjectionRepository
 
+EventSourcingAdminController o-- EventSubscriptionDeadLetterService
+EventSourcingAdminController o-- OrderProjectionRebuildService
+
 AggregateStore o-- AggregateRepository
 AggregateStore o-- EventRepository
+AggregateStore o-- EventUpcasterChain
 
 IdempotencyService o-- IdempotencyKeyRepository
 
@@ -219,6 +239,7 @@ CommandProcessor o-- CommandHandler
 CommandProcessor o-- SyncEventHandler
 
 EventSubscriptionBatchProcessor o-- EventSubscriptionDeadLetterRepository
+EventSubscriptionDeadLetterService o-- EventSubscriptionDeadLetterRepository
 
 ScheduledEventSubscriptionProcessor o-- EventSubscriptionBatchProcessor
 ScheduledEventSubscriptionProcessor o-- AsyncEventHandler
