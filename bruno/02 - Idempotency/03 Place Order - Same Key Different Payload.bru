@@ -1,0 +1,49 @@
+meta {
+  name: Place Order - Same Key Different Payload
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Idempotency-Key: {{idemRunKey}}
+}
+
+body:json {
+  {
+    "riderId": "{{riderId}}",
+    "price": "999.00",
+    "route": [
+      {
+        "address": "Kyiv, 17A Polyjana Street",
+        "lat": 50.5198,
+        "lon": 30.46719
+      }
+    ]
+  }
+}
+
+tests {
+      test("returns 422 Unprocessable Entity", function () {
+        expect(res.getStatus()).to.equal(422);
+      });
+
+      test("returns the IDEMPOTENCY_KEY_MISMATCH code", function () {
+        expect(res.getBody().code).to.equal("IDEMPOTENCY_KEY_MISMATCH");
+        expect(res.getBody().error).to.include("different payload");
+      });
+    
+}
+
+docs {
+      The server hashes the request payload (SHA-256) and stores it with the key.
+      Reusing a key with a different payload is rejected with `422` and the code
+      `IDEMPOTENCY_KEY_MISMATCH`.
+    
+}

@@ -1,0 +1,28 @@
+meta {
+  name: Get Order - Verify Cancelled
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/orders/{{cancelOrderId}}
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("is in status CANCELLED at version 2", function () {
+        expect(res.getBody().status).to.equal("CANCELLED");
+        expect(res.getBody().version).to.equal(2);
+      });
+
+      test("has a cancelledDate but no completedDate", function () {
+        expect(res.getBody().cancelledDate).to.not.be.null;
+        expect(res.getBody().completedDate).to.be.null;
+      });
+    
+}

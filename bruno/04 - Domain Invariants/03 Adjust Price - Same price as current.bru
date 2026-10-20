@@ -1,0 +1,39 @@
+meta {
+  name: Adjust Price - Same price as current
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/orders/{{domainOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "ADJUSTED",
+    "price": "120.00"
+  }
+}
+
+tests {
+      test("returns 400", function () {
+        expect(res.getStatus()).to.equal(400);
+      });
+
+      test("rejects a no-op adjustment", function () {
+        expect(res.getBody().error).to.include("cannot be identical to current price");
+      });
+    
+}
+
+docs {
+      The order was placed with price 120.00, so adjusting it to 120.00 is a no-op
+      and is rejected.
+    
+}

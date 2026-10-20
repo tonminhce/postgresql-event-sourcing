@@ -1,0 +1,47 @@
+meta {
+  name: Place Order - Without Idempotency Key
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "riderId": "{{riderId}}",
+    "price": "120.00",
+    "route": [
+      {
+        "address": "Kyiv, 17A Polyjana Street",
+        "lat": 50.5198,
+        "lon": 30.46719
+      }
+    ]
+  }
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("is not flagged as a replay", function () {
+        expect(res.getHeader("idempotent-replayed")).to.be.undefined;
+      });
+    
+}
+
+docs {
+      Without the header the server generates a random order id on every call, so
+      two identical calls create two distinct orders. This is the classic
+      double-submit problem that the idempotency key solves.
+    
+}

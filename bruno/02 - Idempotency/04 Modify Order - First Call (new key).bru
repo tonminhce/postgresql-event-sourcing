@@ -1,0 +1,38 @@
+meta {
+  name: Modify Order - First Call (new key)
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/orders/{{idemOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Idempotency-Key: {{idemRunKey}}-modify
+}
+
+body:json {
+  {
+    "status": "ADJUSTED",
+    "price": "175.00"
+  }
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+    
+}
+
+docs {
+      `PUT` endpoints honour `Idempotency-Key` as well. The key is derived from
+      the run key, so it is unique per run and never collides with the key of the
+      `POST` requests (the key is the primary key of `ES_IDEMPOTENCY_KEY`, so it
+      is scoped globally across all commands).
+    
+}

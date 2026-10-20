@@ -1,0 +1,33 @@
+meta {
+  name: Complete Order
+  type: http
+  seq: 6
+}
+
+put {
+  url: {{baseUrl}}/orders/{{orderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "COMPLETED"
+  }
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+    
+}
+
+docs {
+      Only allowed when the order is `ACCEPTED`.
+    
+}

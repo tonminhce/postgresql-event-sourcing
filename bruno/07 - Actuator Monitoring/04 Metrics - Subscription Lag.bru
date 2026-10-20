@@ -1,0 +1,29 @@
+meta {
+  name: Metrics - Subscription Lag
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/actuator/metrics/event_sourcing_subscription_lag
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("exposes the lag measurements", function () {
+        expect(res.getBody().name).to.equal("event_sourcing_subscription_lag");
+        expect(res.getBody().measurements).to.be.an("array");
+      });
+    
+}
+
+docs {
+      How far the read model lags behind the event store. A growing lag means the
+      `postgres-channel` subscription is not draining.
+    
+}

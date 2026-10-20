@@ -1,0 +1,37 @@
+meta {
+  name: Complete Order - Before accept
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/orders/{{domainOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "COMPLETED"
+  }
+}
+
+tests {
+      test("returns 400", function () {
+        expect(res.getStatus()).to.equal(400);
+      });
+
+      test("reports the current status", function () {
+        expect(res.getBody().error).to.include("can't be completed");
+      });
+    
+}
+
+docs {
+      `COMPLETED` is only reachable from `ACCEPTED`.
+    
+}

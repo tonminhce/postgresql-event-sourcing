@@ -1,0 +1,35 @@
+meta {
+  name: Adjust Order Price
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/orders/{{orderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "ADJUSTED",
+    "price": "150.00"
+  }
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+    
+}
+
+docs {
+      Surge pricing. `ADJUSTED` is only allowed while the order is `PLACED` or `ADJUSTED`.
+      The response body is empty on success.
+    
+}

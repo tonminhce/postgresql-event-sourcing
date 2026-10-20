@@ -1,0 +1,29 @@
+meta {
+  name: Cancel Order
+  type: http
+  seq: 9
+}
+
+put {
+  url: {{baseUrl}}/orders/{{cancelOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "CANCELLED",
+    "reason": "Passenger changed mind"
+  }
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+    
+}

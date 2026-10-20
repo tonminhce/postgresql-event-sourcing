@@ -1,0 +1,28 @@
+meta {
+  name: Complete Order (fixture B)
+  type: http
+  seq: 13
+}
+
+put {
+  url: {{baseUrl}}/orders/{{completedOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "COMPLETED"
+  }
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+    
+}

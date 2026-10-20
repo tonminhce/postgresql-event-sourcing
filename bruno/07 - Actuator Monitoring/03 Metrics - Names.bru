@@ -1,0 +1,23 @@
+meta {
+  name: Metrics - Names
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/actuator/metrics
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("exposes the event sourcing metrics", function () {
+        expect(res.getBody().names).to.include("event_sourcing_subscription_lag");
+        expect(res.getBody().names).to.include("event_sourcing_append_duration_seconds");
+      });
+    
+}

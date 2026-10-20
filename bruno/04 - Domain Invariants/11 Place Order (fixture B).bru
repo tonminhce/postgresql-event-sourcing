@@ -1,0 +1,45 @@
+meta {
+  name: Place Order (fixture B)
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Idempotency-Key: {{$guid}}
+}
+
+body:json {
+  {
+    "riderId": "{{riderId}}",
+    "price": "120.00",
+    "route": [
+      {
+        "address": "Kyiv, fixture B",
+        "lat": 50.5198,
+        "lon": 30.46719
+      }
+    ]
+  }
+}
+
+script:post-response {
+      if (res.getStatus() === 200) {
+        bru.setEnvVar("completedOrderId", res.getBody().orderId);
+      }
+    
+}
+
+tests {
+      test("returns 200 with an orderId", function () {
+        expect(res.getStatus()).to.equal(200);
+        expect(res.getBody()).to.have.property("orderId");
+      });
+    
+}

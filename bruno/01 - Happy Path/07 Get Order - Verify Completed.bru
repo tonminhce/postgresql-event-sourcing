@@ -1,0 +1,39 @@
+meta {
+  name: Get Order - Verify Completed
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/orders/{{orderId}}
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("is in status COMPLETED at version 4", function () {
+        expect(res.getBody().status).to.equal("COMPLETED");
+        expect(res.getBody().version).to.equal(4);
+      });
+
+      test("keeps the adjusted price and the driver", function () {
+        expect(res.getBody().price).to.equal(150);
+        expect(res.getBody().driverId).to.equal(bru.getEnvVar("driverId"));
+      });
+
+      test("has a completedDate but no cancelledDate", function () {
+        expect(res.getBody().completedDate).to.not.be.null;
+        expect(res.getBody().cancelledDate).to.be.null;
+      });
+    
+}
+
+docs {
+      Verifies the full projection after the happy path:
+      `PLACED(1) -> ADJUSTED(2) -> ACCEPTED(3) -> COMPLETED(4)`.
+    
+}

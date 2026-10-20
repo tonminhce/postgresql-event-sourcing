@@ -1,0 +1,22 @@
+meta {
+  name: Replay Dead Letter - Unknown id
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/admin/subscriptions/dlq/999999/replay
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 404", function () {
+        expect(res.getStatus()).to.equal(404);
+      });
+
+      test("explains that the record does not exist", function () {
+        expect(res.getBody().error).to.include("not found");
+      });
+    
+}

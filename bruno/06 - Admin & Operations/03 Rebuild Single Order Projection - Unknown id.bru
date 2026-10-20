@@ -1,0 +1,29 @@
+meta {
+  name: Rebuild Single Order Projection - Unknown id
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/admin/projections/orders/{{unknownOrderId}}/rebuild
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 404", function () {
+        expect(res.getStatus()).to.equal(404);
+      });
+
+      test("explains that the order does not exist", function () {
+        expect(res.getBody().error).to.include("Order not found for ID");
+      });
+    
+}
+
+docs {
+      An unknown order id has no events, so there is no order to rebuild a
+      projection from. The service reports it as `404 Not Found` instead of
+      inserting a projection with a `null` status.
+    
+}

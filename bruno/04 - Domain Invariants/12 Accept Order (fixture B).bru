@@ -1,0 +1,29 @@
+meta {
+  name: Accept Order (fixture B)
+  type: http
+  seq: 12
+}
+
+put {
+  url: {{baseUrl}}/orders/{{completedOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "ACCEPTED",
+    "driverId": "{{driverId}}"
+  }
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+    
+}

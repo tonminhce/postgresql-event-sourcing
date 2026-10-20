@@ -1,0 +1,33 @@
+meta {
+  name: Prometheus Scrape
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/actuator/prometheus
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("is served as plain text", function () {
+        expect(res.getHeader("content-type")).to.include("text/plain");
+      });
+
+      test("exposes the event sourcing metrics", function () {
+        const body = res.getBody();
+        expect(body).to.include("event_sourcing_subscription_lag");
+        expect(body).to.include("event_sourcing_append_duration_seconds");
+      });
+    
+}
+
+docs {
+      Prometheus scrape endpoint, exposed by the actuator on the same port.
+    
+}

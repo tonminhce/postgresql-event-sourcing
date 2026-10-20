@@ -1,0 +1,32 @@
+meta {
+  name: Modify Order - ACCEPTED without driverId
+  type: http
+  seq: 9
+}
+
+put {
+  url: {{baseUrl}}/orders/{{orderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "ACCEPTED"
+  }
+}
+
+tests {
+      test("returns 400", function () {
+        expect(res.getStatus()).to.equal(400);
+      });
+
+      test("explains that driverId is required for ACCEPTED", function () {
+        expect(res.getBody().error).to.include("driverId");
+      });
+    
+}

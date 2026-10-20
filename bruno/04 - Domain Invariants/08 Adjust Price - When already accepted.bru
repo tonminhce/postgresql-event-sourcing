@@ -1,0 +1,38 @@
+meta {
+  name: Adjust Price - When already accepted
+  type: http
+  seq: 8
+}
+
+put {
+  url: {{baseUrl}}/orders/{{domainOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "ADJUSTED",
+    "price": "200.00"
+  }
+}
+
+tests {
+      test("returns 400", function () {
+        expect(res.getStatus()).to.equal(400);
+      });
+
+      test("reports the current status", function () {
+        expect(res.getBody().error).to.include("Can't adjust the price of an order in status ACCEPTED");
+      });
+    
+}
+
+docs {
+      Price adjustments are only allowed while the order is `PLACED` or `ADJUSTED`.
+    
+}

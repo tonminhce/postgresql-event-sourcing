@@ -1,0 +1,45 @@
+meta {
+  name: Place Order - Invalid latitude
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "riderId": "{{riderId}}",
+    "price": "10.00",
+    "route": [
+      {
+        "address": "Kyiv",
+        "lat": 999,
+        "lon": 30.46719
+      }
+    ]
+  }
+}
+
+tests {
+      test("returns 400", function () {
+        expect(res.getStatus()).to.equal(400);
+      });
+
+      test("rejects the out-of-range latitude", function () {
+        expect(res.getBody().error).to.include("Invalid latitude");
+      });
+    
+}
+
+docs {
+      Latitude must be within [-90, 90]. Longitude must be within [-180, 180].
+    
+}

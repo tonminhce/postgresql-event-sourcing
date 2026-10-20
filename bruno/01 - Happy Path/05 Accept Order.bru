@@ -1,0 +1,34 @@
+meta {
+  name: Accept Order
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/orders/{{orderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "ACCEPTED",
+    "driverId": "{{driverId}}"
+  }
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+    
+}
+
+docs {
+      Assigns a driver. The driver id must differ from the rider id.
+    
+}

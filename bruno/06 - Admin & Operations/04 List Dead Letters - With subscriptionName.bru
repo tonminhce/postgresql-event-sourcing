@@ -1,0 +1,28 @@
+meta {
+  name: List Dead Letters - With subscriptionName
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/admin/subscriptions/dlq?subscriptionName=order-projection&limit=50
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("returns an array", function () {
+        expect(res.getBody()).to.be.an("array");
+      });
+    
+}
+
+docs {
+      Lists poisoned events that exhausted their retries. An empty array means
+      the event subscriptions are healthy.
+    
+}

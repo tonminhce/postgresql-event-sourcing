@@ -1,0 +1,38 @@
+meta {
+  name: Cancel Order - When completed
+  type: http
+  seq: 14
+}
+
+put {
+  url: {{baseUrl}}/orders/{{completedOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "CANCELLED",
+    "reason": "Passenger changed mind"
+  }
+}
+
+tests {
+      test("returns 400", function () {
+        expect(res.getStatus()).to.equal(400);
+      });
+
+      test("reports the current status", function () {
+        expect(res.getBody().error).to.include("Order in status COMPLETED can't be cancelled");
+      });
+    
+}
+
+docs {
+      A completed order is terminal and can no longer be cancelled.
+    
+}

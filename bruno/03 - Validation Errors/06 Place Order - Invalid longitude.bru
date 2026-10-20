@@ -1,0 +1,40 @@
+meta {
+  name: Place Order - Invalid longitude
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "riderId": "{{riderId}}",
+    "price": "10.00",
+    "route": [
+      {
+        "address": "Kyiv",
+        "lat": 50.5198,
+        "lon": 999
+      }
+    ]
+  }
+}
+
+tests {
+      test("returns 400", function () {
+        expect(res.getStatus()).to.equal(400);
+      });
+
+      test("rejects the out-of-range longitude", function () {
+        expect(res.getBody().error).to.include("Invalid longitude");
+      });
+    
+}

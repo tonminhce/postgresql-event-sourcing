@@ -1,0 +1,24 @@
+meta {
+  name: Get Order - Unknown id
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/orders/{{unknownOrderId}}
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 404", function () {
+        expect(res.getStatus()).to.equal(404);
+      });
+    
+}
+
+docs {
+      The response body is empty (no JSON error envelope) because the controller
+      returns `ResponseEntity.notFound().build()`.
+    
+}

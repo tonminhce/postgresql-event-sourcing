@@ -1,0 +1,29 @@
+meta {
+  name: Rebuild All Order Projections
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/admin/projections/orders/rebuild
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("reports success and the number of rebuilt projections", function () {
+        expect(res.getBody().status).to.equal("SUCCESS");
+        expect(res.getBody().rebuiltCount).to.be.a("number");
+      });
+    
+}
+
+docs {
+      Replays the whole event stream into the read model. Useful after a
+      projection bug or to verify the projections can be rebuilt from scratch.
+    
+}

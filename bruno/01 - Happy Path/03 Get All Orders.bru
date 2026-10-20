@@ -1,0 +1,32 @@
+meta {
+  name: Get All Orders
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/orders
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("returns an array", function () {
+        expect(res.getBody()).to.be.an("array");
+      });
+
+      test("contains the order created in step 01", function () {
+        const ids = res.getBody().map(function (o) { return o.id; });
+        expect(ids).to.include(bru.getEnvVar("orderId"));
+      });
+    
+}
+
+docs {
+      Reads the `RM_ORDER` read-side projection (not the event store).
+    
+}

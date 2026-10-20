@@ -1,0 +1,34 @@
+meta {
+  name: Get Order by Id
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/orders/{{orderId}}
+  body: none
+  auth: none
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("returns the order created in the previous step", function () {
+        expect(res.getBody().id).to.equal(bru.getEnvVar("orderId"));
+      });
+
+      test("is in status PLACED at version 1", function () {
+        expect(res.getBody().status).to.equal("PLACED");
+        expect(res.getBody().version).to.equal(1);
+      });
+
+      test("returns the rider, price and route", function () {
+        expect(res.getBody().riderId).to.equal(bru.getEnvVar("riderId"));
+        expect(res.getBody().price).to.equal(120);
+        expect(res.getBody().route).to.be.an("array");
+        expect(res.getBody().route).to.have.lengthOf(2);
+      });
+    
+}

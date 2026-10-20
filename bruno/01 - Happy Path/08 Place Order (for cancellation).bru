@@ -1,0 +1,45 @@
+meta {
+  name: Place Order (for cancellation)
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Idempotency-Key: {{$guid}}
+}
+
+body:json {
+  {
+    "riderId": "{{riderId}}",
+    "price": "90.00",
+    "route": [
+      {
+        "address": "Kyiv, 1 Khreschatyk Street",
+        "lat": 50.4471,
+        "lon": 30.5343
+      }
+    ]
+  }
+}
+
+script:post-response {
+      if (res.getStatus() === 200) {
+        bru.setEnvVar("cancelOrderId", res.getBody().orderId);
+      }
+    
+}
+
+tests {
+      test("returns 200 with an orderId", function () {
+        expect(res.getStatus()).to.equal(200);
+        expect(res.getBody()).to.have.property("orderId");
+      });
+    
+}

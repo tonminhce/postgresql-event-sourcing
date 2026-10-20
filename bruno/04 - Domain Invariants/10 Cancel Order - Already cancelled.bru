@@ -1,0 +1,33 @@
+meta {
+  name: Cancel Order - Already cancelled
+  type: http
+  seq: 10
+}
+
+put {
+  url: {{baseUrl}}/orders/{{domainOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "CANCELLED",
+    "reason": "Second attempt"
+  }
+}
+
+tests {
+      test("returns 400", function () {
+        expect(res.getStatus()).to.equal(400);
+      });
+
+      test("reports the current status", function () {
+        expect(res.getBody().error).to.include("Order in status CANCELLED can't be cancelled");
+      });
+    
+}

@@ -1,0 +1,62 @@
+meta {
+  name: PostgreSQL Event Sourcing API
+  type: collection
+  seq: 1
+}
+
+auth {
+  mode: none
+}
+
+docs {
+  # PostgreSQL Event Sourcing — API collection
+
+  Full REST surface of the `event-sourcing-app` sample (Spring Boot 4 / Java 25),
+  covering the happy paths, the idempotency contract, bean validation, the
+  domain invariants, the admin/operations endpoints and the actuator metrics.
+
+  ## Prerequisites
+
+  The stack must be up:
+
+  ```bash
+  docker compose up -d --scale event-sourcing-app=2
+  ```
+
+  The API is served through nginx on `http://localhost:8080` (two app instances
+  behind the load balancer, so concurrent requests really do hit two different
+  JVMs).
+
+  ## Import
+
+  1. Bruno -> File -> Import Collection -> select the `bruno` folder.
+  2. Select the `Local` environment (it holds `baseUrl`, `riderId`, `driverId`).
+
+  ## Folders
+
+  | Folder | What it covers |
+  | --- | --- |
+  | `01 - Happy Path` | Create order, query it, adjust price, accept, complete, cancel |
+  | `02 - Idempotency` | RFC 9440 / Stripe replay, key mismatch, missing key |
+  | `03 - Validation Errors` | Bean validation and domain input validation (400) |
+  | `04 - Domain Invariants` | Illegal state transitions of the order aggregate |
+  | `05 - Not Found & Malformed` | 404 and malformed path/JSON payloads |
+  | `06 - Admin & Operations` | Projection rebuild, dead letter queue |
+  | `07 - Actuator Monitoring` | Health, metrics, Prometheus scrape |
+
+  ## Running
+
+  Run a folder (not a single request) for `01 - Happy Path`, `02 - Idempotency`
+  and `04 - Domain Invariants` — the later requests depend on variables captured
+  by the earlier ones (`orderId`, `idemOrderId`, `domainOrderId`, ...).
+
+  The happy path uses a fresh `{{$guid}}` idempotency key on every run, so each
+  run creates a brand new order. The idempotency folder generates a fresh key
+  in the pre-request script, so the first call is always a real first call and
+  the next requests exercise the replay path. Both stay green when the
+  collection is run repeatedly.
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:8080
+}

@@ -1,0 +1,71 @@
+meta {
+  name: Place Order - First Call (new key)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Idempotency-Key: {{idemRunKey}}
+}
+
+body:json {
+  {
+    "riderId": "{{riderId}}",
+    "price": "120.00",
+    "route": [
+      {
+        "address": "Kyiv, 17A Polyjana Street",
+        "lat": 50.5198,
+        "lon": 30.46719
+      }
+    ]
+  }
+}
+
+script:pre-request {
+      // A fresh key per run, so the first call is always a real first call and
+      // the next two requests can replay it. The idempotency key is the primary
+      // key of ES_IDEMPOTENCY_KEY, so it is scoped globally - a key can never be
+      // reused for a different command.
+      bru.setEnvVar(
+        "idemRunKey",
+        "bruno-idem-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10)
+      );
+    
+}
+
+script:post-response {
+      if (res.getStatus() === 200) {
+        bru.setEnvVar("idemOrderId", res.getBody().orderId);
+      }
+    
+}
+
+tests {
+      test("returns 200", function () {
+        expect(res.getStatus()).to.equal(200);
+      });
+
+      test("is not a replay on the first call", function () {
+        expect(res.getHeader("idempotent-replayed")).to.be.undefined;
+      });
+
+      test("stores the order id for the next steps", function () {
+        expect(bru.getEnvVar("idemOrderId")).to.be.a("string");
+      });
+    
+}
+
+docs {
+      The idempotency key is generated in the pre-request script, so every run of
+      the collection starts from a clean key and this request is a genuine first
+      call. The following two requests reuse the very same key.
+    
+}

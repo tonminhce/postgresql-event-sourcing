@@ -1,0 +1,33 @@
+meta {
+  name: Place Order - Negative price
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "riderId": "{{riderId}}",
+    "price": "-5.00"
+  }
+}
+
+tests {
+      test("returns 400", function () {
+        expect(res.getStatus()).to.equal(400);
+      });
+
+      test("rejects a non-positive price", function () {
+        expect(res.getBody().error).to.include("Price must be strictly positive");
+      });
+    
+}
