@@ -43,10 +43,10 @@ public class EventSubscriptionRepository {
         ).stream().findFirst();
     }
 
-    public boolean updateEventSubscription(String subscriptionName,
-                                           BigInteger lastProcessedTransactionId,
-                                           long lastProcessedEventId) {
-        int updatedRows = jdbcTemplate.update("""
+    public void updateEventSubscription(String subscriptionName,
+                                        BigInteger lastProcessedTransactionId,
+                                        long lastProcessedEventId) {
+        jdbcTemplate.update("""
                         UPDATE ES_EVENT_SUBSCRIPTION
                            SET LAST_TRANSACTION_ID = :lastProcessedTransactionId::xid8,
                                LAST_EVENT_ID = :lastProcessedEventId
@@ -57,7 +57,6 @@ public class EventSubscriptionRepository {
                         "lastProcessedTransactionId", lastProcessedTransactionId.toString(),
                         "lastProcessedEventId", lastProcessedEventId
                 ));
-        return updatedRows > 0;
     }
 
     public long calculateSubscriptionLag(String subscriptionName, String aggregateType) {

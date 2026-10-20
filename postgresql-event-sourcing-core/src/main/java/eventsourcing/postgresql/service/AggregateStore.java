@@ -43,12 +43,14 @@ public class AggregateStore {
 
         int expectedVersion = aggregate.getBaseVersion();
         int newVersion = aggregate.getVersion();
-        if (!aggregateRepository.checkAndUpdateAggregateVersion(aggregateId, expectedVersion, newVersion)) {
+        try {
+            aggregateRepository.updateAggregateVersion(aggregateId, expectedVersion, newVersion);
+        } catch (OptimisticConcurrencyControlException e) {
             metrics.recordOccConflict(aggregateType);
             log.warn("Optimistic concurrency control error in aggregate {} {}: " +
                      "actual version doesn't match expected version {}",
                     aggregateType, aggregateId, expectedVersion);
-            throw new OptimisticConcurrencyControlException(expectedVersion);
+            throw e;
         }
 
         SnapshottingProperties snapshotting = properties.getSnapshotting(aggregateType);
@@ -67,9 +69,7 @@ public class AggregateStore {
 
     private void createAggregateSnapshot(SnapshottingProperties snapshotting,
                                          Aggregate aggregate) {
-        if (snapshotting.enabled() &&
-            snapshotting.nthEvent() > 1 &&
-            aggregate.getVersion() % snapshotting.nthEvent() == 0) {
+        if (snapshotting.shouldSnapshot(aggregate.getVersion())) {
             log.info("Creating {} aggregate {} version {} snapshot",
                     aggregate.getAggregateType(), aggregate.getAggregateId(), aggregate.getVersion());
             aggregateRepository.createAggregateSnapshot(aggregate);

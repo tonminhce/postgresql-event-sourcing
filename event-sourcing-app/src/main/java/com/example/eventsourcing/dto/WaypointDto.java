@@ -9,4 +9,12 @@ public record WaypointDto(
         @JsonProperty("lon")
         double longitude
 ) {
+    public void validate() {
+        if (Double.isNaN(latitude) || latitude < -90.0 || latitude > 90.0) {
+            throw new IllegalArgumentException("Invalid latitude: " + latitude);
+        }
+        if (Double.isNaN(longitude) || longitude < -180.0 || longitude > 180.0) {
+            throw new IllegalArgumentException("Invalid longitude: " + longitude);
+        }
+    }
 }

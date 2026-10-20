@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.Optional;
 
@@ -18,7 +19,7 @@ public class IdempotencyService {
 
     @Transactional(readOnly = true)
     public Optional<IdempotencyKeyRecord> get(String key) {
-        if (key == null || key.isBlank()) {
+        if (!StringUtils.hasText(key)) {
             return Optional.empty();
         }
         return idempotencyKeyRepository.findByKey(key);
@@ -26,7 +27,7 @@ public class IdempotencyService {
 
     @Transactional
     public void record(IdempotencyKeyRecord record) {
-        if (record.key() == null || record.key().isBlank()) {
+        if (record == null || !StringUtils.hasText(record.key())) {
             return;
         }
         idempotencyKeyRepository.save(record);

@@ -29,6 +29,9 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class PostgresChannelEventSubscriptionProcessor {
 
+    private static final int POLL_TIMEOUT_MS = 30_000;
+    private static final long SWEEP_INTERVAL_MS = 30_000L;
+
     private final List<AsyncEventHandler> eventHandlers;
     private final EventSubscriptionProcessor eventSubscriptionProcessor;
     private final DataSourceProperties dataSourceProperties;
@@ -72,13 +75,14 @@ public class PostgresChannelEventSubscriptionProcessor {
                             this.connection = conn;
                             long lastSweepTime = System.currentTimeMillis();
                             while (isActive()) {
-                                PGNotification[] notifications = conn.getNotifications(30000);
+                                PGNotification[] notifications = conn.getNotifications(POLL_TIMEOUT_MS);
                                 // Unfortunately, there is no good way of interrupting a notification
                                 // poll but by closing its connection.
                                 if (!isActive()) {
                                     return;
                                 }
-                                if (notifications != null && notifications.length > 0) {
+                                boolean hasNotifications = notifications != null && notifications.length > 0;
+                                if (hasNotifications) {
                                     for (PGNotification notification : notifications) {
                                         String parameter = notification.getParameter();
                                         eventHandlers.stream()
@@ -86,8 +90,9 @@ public class PostgresChannelEventSubscriptionProcessor {
                                                 .forEach(this::processNewEvents);
                                     }
                                 }
-                                // Periodic safety sweep runs every 30s regardless of notification arrivals
-                                if (System.currentTimeMillis() - lastSweepTime >= 30000 || notifications == null || notifications.length == 0) {
+                                boolean isTimedOut = !hasNotifications;
+                                boolean isPeriodicSweepDue = System.currentTimeMillis() - lastSweepTime >= SWEEP_INTERVAL_MS;
+                                if (isTimedOut || isPeriodicSweepDue) {
                                     this.eventHandlers.forEach(this::processNewEvents);
                                     lastSweepTime = System.currentTimeMillis();
                                 }
@@ -124,11 +129,7 @@ public class PostgresChannelEventSubscriptionProcessor {
     }
 
     private boolean isActive() {
-        if (Thread.interrupted()) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
-        return true;
+        return !Thread.currentThread().isInterrupted();
     }
 
     private void processNewEvents(AsyncEventHandler eventHandler) {

@@ -1,7 +1,6 @@
 package eventsourcing.postgresql.service;
 
 import eventsourcing.postgresql.config.EventSourcingProperties;
-import eventsourcing.postgresql.repository.EventSubscriptionRepository;
 import eventsourcing.postgresql.service.event.AsyncEventHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,9 +21,8 @@ public class EventSubscriptionProcessor {
         log.debug("Handling new events for subscription {}", subscriptionName);
 
         int batchSize = properties.getSubscriptionBatchSize();
-        boolean hasMore = true;
-        while (hasMore) {
-            hasMore = batchProcessor.processBatch(eventHandler, subscriptionName, batchSize);
+        while (batchProcessor.processBatch(eventHandler, subscriptionName, batchSize).hasMore()) {
+            // Continues processing while there are more events in the stream
         }
     }
 }

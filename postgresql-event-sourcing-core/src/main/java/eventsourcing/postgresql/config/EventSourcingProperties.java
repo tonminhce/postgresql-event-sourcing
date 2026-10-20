@@ -43,5 +43,8 @@ public class EventSourcingProperties {
             @Min(2)
             int nthEvent
     ) {
+        public boolean shouldSnapshot(int version) {
+            return enabled && nthEvent > 1 && version % nthEvent == 0;
+        }
     }
 }

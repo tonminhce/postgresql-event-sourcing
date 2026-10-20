@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -34,9 +35,7 @@ public class IdempotencyKeyRepository {
     }
 
     public void save(IdempotencyKeyRecord record) {
-        String responseJson = (record.responseBody() != null && !record.responseBody().isBlank())
-                ? record.responseBody()
-                : "{}";
+        String responseJson = StringUtils.hasText(record.responseBody()) ? record.responseBody() : "{}";
         jdbcTemplate.update("""
                         INSERT INTO ES_IDEMPOTENCY_KEY (KEY, COMMAND_TYPE, AGGREGATE_ID, RESPONSE_BODY, STATUS_CODE)
                         VALUES (:key, :commandType, :aggregateId, :responseBody::jsonb, :statusCode)

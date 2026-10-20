@@ -18,6 +18,7 @@ import eventsourcing.postgresql.service.CommandProcessor;
 import eventsourcing.postgresql.service.command.IdempotencyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -55,12 +56,10 @@ public class OrdersController {
             throw new IllegalArgumentException("Fields 'riderId' and 'price' are required");
         }
 
-        if (isKeyPresent(idempotencyKey)) {
-            var existing = idempotencyService.get(idempotencyKey);
-            if (existing.isPresent()) {
-                return ResponseEntity.status(existing.get().statusCode())
-                        .body(objectMapper.readTree(existing.get().responseBody()));
-            }
+        var existingOrder = idempotencyService.get(idempotencyKey);
+        if (existingOrder.isPresent()) {
+            return ResponseEntity.status(existingOrder.get().statusCode())
+                    .body(objectMapper.readTree(existingOrder.get().responseBody()));
         }
 
         UUID deterministicOrderId = toDeterministicOrderId(idempotencyKey);
@@ -76,10 +75,8 @@ public class OrdersController {
         JsonNode responseBody = objectMapper.createObjectNode()
                 .put("orderId", order.getAggregateId().toString());
 
-        if (isKeyPresent(idempotencyKey)) {
-            recordIdempotency(idempotencyKey, "PlaceOrderCommand", order.getAggregateId(),
-                    objectMapper.writeValueAsString(responseBody), 200);
-        }
+        recordIdempotency(idempotencyKey, "PlaceOrderCommand", order.getAggregateId(),
+                objectMapper.writeValueAsString(responseBody), 200);
 
         return ResponseEntity.ok(responseBody);
     }
@@ -90,23 +87,19 @@ public class OrdersController {
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody JsonNode request) {
 
-        if (isKeyPresent(idempotencyKey)) {
-            var existing = idempotencyService.get(idempotencyKey);
-            if (existing.isPresent()) {
-                if (!existing.get().aggregateId().equals(orderId)) {
-                    return ResponseEntity.status(CONFLICT)
-                            .body(objectMapper.createObjectNode().put("error", "Idempotency-Key already used for a different order"));
-                }
-                return ResponseEntity.status(existing.get().statusCode()).build();
+        var existing = idempotencyService.get(idempotencyKey);
+        if (existing.isPresent()) {
+            if (!existing.get().aggregateId().equals(orderId)) {
+                return ResponseEntity.status(CONFLICT)
+                        .body(objectMapper.createObjectNode().put("error", "Idempotency-Key already used for a different order"));
             }
+            return ResponseEntity.status(existing.get().statusCode()).build();
         }
 
         Command command = toModifyCommand(orderId, request);
         commandProcessor.process(command);
 
-        if (isKeyPresent(idempotencyKey)) {
-            recordIdempotency(idempotencyKey, command.getClass().getSimpleName(), orderId, "{}", 200);
-        }
+        recordIdempotency(idempotencyKey, command.getClass().getSimpleName(), orderId, "{}", 200);
 
         return ResponseEntity.ok().build();
     }
@@ -166,23 +159,21 @@ public class OrdersController {
     }
 
     private static UUID toDeterministicOrderId(String idempotencyKey) {
-        return isKeyPresent(idempotencyKey)
+        return StringUtils.hasText(idempotencyKey)
                 ? UUID.nameUUIDFromBytes(idempotencyKey.getBytes(UTF_8))
                 : null;
     }
 
-    private static boolean isKeyPresent(String key) {
-        return key != null && !key.isBlank();
-    }
-
     private void recordIdempotency(String key, String commandType, UUID aggregateId, String responseBody, int statusCode) {
-        idempotencyService.record(new IdempotencyKeyRecord(
-                key,
-                commandType,
-                aggregateId,
-                responseBody,
-                statusCode,
-                OffsetDateTime.now()
-        ));
+        if (StringUtils.hasText(key)) {
+            idempotencyService.record(new IdempotencyKeyRecord(
+                    key,
+                    commandType,
+                    aggregateId,
+                    responseBody,
+                    statusCode,
+                    OffsetDateTime.now()
+            ));
+        }
     }
 }

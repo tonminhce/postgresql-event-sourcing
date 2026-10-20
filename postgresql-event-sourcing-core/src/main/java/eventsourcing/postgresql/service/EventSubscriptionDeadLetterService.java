@@ -35,7 +35,7 @@ public class EventSubscriptionDeadLetterService {
     }
 
     @Transactional
-    public boolean replayDeadLetter(long deadLetterId) {
+    public void replayDeadLetter(long deadLetterId) {
         EventSubscriptionDeadLetterRecord record = deadLetterRepository.findDeadLetterById(deadLetterId)
                 .orElseThrow(() -> new NoSuchElementException("Dead letter record not found for ID: " + deadLetterId));
 
@@ -50,8 +50,7 @@ public class EventSubscriptionDeadLetterService {
         log.info("Replaying dead letter ID {} for subscription {}", deadLetterId, record.subscriptionName());
         targetHandler.handleEvent(eventWithId);
 
-        boolean deleted = deadLetterRepository.deleteDeadLetterById(deadLetterId);
-        log.info("Dead letter ID {} replayed successfully and removed from DLQ: {}", deadLetterId, deleted);
-        return true;
+        deadLetterRepository.deleteDeadLetterById(deadLetterId);
+        log.info("Dead letter ID {} replayed successfully and removed from DLQ", deadLetterId);
     }
 }

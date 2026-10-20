@@ -28,8 +28,18 @@ public class EventSubscriptionBatchProcessor {
     private final EventSourcingProperties properties;
     private final EventSourcingMetrics metrics;
 
+    public record BatchResult(int processedCount, boolean hasMore) {
+        public static BatchResult empty() {
+            return new BatchResult(0, false);
+        }
+
+        public static BatchResult of(int count, int batchSize) {
+            return new BatchResult(count, count == batchSize);
+        }
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean processBatch(AsyncEventHandler eventHandler, String subscriptionName, int batchSize) {
+    public BatchResult processBatch(AsyncEventHandler eventHandler, String subscriptionName, int batchSize) {
         subscriptionRepository.createSubscriptionIfAbsent(subscriptionName);
         return subscriptionRepository.readCheckpointAndLockSubscription(subscriptionName)
                 .map(checkpoint -> {
@@ -44,7 +54,7 @@ public class EventSubscriptionBatchProcessor {
                     if (events.isEmpty()) {
                         long lag = subscriptionRepository.calculateSubscriptionLag(subscriptionName, eventHandler.getAggregateType());
                         metrics.recordSubscriptionLag(subscriptionName, eventHandler.getAggregateType(), lag);
-                        return false;
+                        return BatchResult.empty();
                     }
 
                     long startNanos = System.nanoTime();
@@ -58,11 +68,11 @@ public class EventSubscriptionBatchProcessor {
                     long lag = subscriptionRepository.calculateSubscriptionLag(subscriptionName, eventHandler.getAggregateType());
                     metrics.recordSubscriptionLag(subscriptionName, eventHandler.getAggregateType(), lag);
 
-                    return events.size() == batchSize;
+                    return BatchResult.of(events.size(), batchSize);
                 })
                 .orElseGet(() -> {
                     log.debug("Can't acquire lock on subscription {}", subscriptionName);
-                    return false;
+                    return BatchResult.empty();
                 });
     }
 

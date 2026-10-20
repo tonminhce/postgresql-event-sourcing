@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -73,7 +74,7 @@ public class EventSubscriptionDeadLetterRepository {
                  LIMIT :limit
                 """;
 
-        String nameParam = (subscriptionName != null && !subscriptionName.isBlank()) ? subscriptionName : null;
+        String nameParam = StringUtils.hasText(subscriptionName) ? subscriptionName : null;
         var params = new MapSqlParameterSource()
                 .addValue("subscriptionName", nameParam)
                 .addValue("limit", limit);
@@ -101,13 +102,12 @@ public class EventSubscriptionDeadLetterRepository {
         ).stream().findFirst();
     }
 
-    public boolean deleteDeadLetterById(long id) {
-        int updated = jdbcTemplate.update("""
+    public void deleteDeadLetterById(long id) {
+        jdbcTemplate.update("""
                         DELETE FROM ES_EVENT_SUBSCRIPTION_DEAD_LETTER
                          WHERE ID = :id
                         """,
                 Map.of("id", id));
-        return updated > 0;
     }
 
     private EventSubscriptionDeadLetterRecord toRecord(ResultSet rs, int rowNum) throws SQLException {

@@ -3,6 +3,7 @@ package eventsourcing.postgresql.repository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import eventsourcing.postgresql.domain.Aggregate;
 import eventsourcing.postgresql.domain.AggregateTypeMapper;
+import eventsourcing.postgresql.error.OptimisticConcurrencyControlException;
 import jakarta.annotation.Nullable;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
@@ -43,9 +44,9 @@ public class AggregateRepository {
                 ));
     }
 
-    public boolean checkAndUpdateAggregateVersion(@NonNull UUID aggregateId,
-                                                  int expectedVersion,
-                                                  int newVersion) {
+    public void updateAggregateVersion(@NonNull UUID aggregateId,
+                                       int expectedVersion,
+                                       int newVersion) {
         int updatedRows = jdbcTemplate.update("""
                         UPDATE ES_AGGREGATE
                            SET VERSION = :newVersion
@@ -57,7 +58,20 @@ public class AggregateRepository {
                         "aggregateId", aggregateId,
                         "expectedVersion", expectedVersion
                 ));
-        return updatedRows > 0;
+        if (updatedRows == 0) {
+            throw new OptimisticConcurrencyControlException(expectedVersion);
+        }
+    }
+
+    public boolean checkAndUpdateAggregateVersion(@NonNull UUID aggregateId,
+                                                  int expectedVersion,
+                                                  int newVersion) {
+        try {
+            updateAggregateVersion(aggregateId, expectedVersion, newVersion);
+            return true;
+        } catch (OptimisticConcurrencyControlException e) {
+            return false;
+        }
     }
 
     public List<UUID> findAggregateIdsByType(@NonNull String aggregateType) {

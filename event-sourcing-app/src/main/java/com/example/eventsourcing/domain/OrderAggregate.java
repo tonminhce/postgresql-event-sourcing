@@ -52,9 +52,7 @@ public class OrderAggregate extends Aggregate {
         if (command.getRiderId() == null) {
             throw new IllegalArgumentException("Rider ID cannot be null");
         }
-        if (command.getPrice() == null || command.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Price must be strictly positive");
-        }
+        validatePositivePrice(command.getPrice(), "Price must be strictly positive");
         if (command.getRoute() == null) {
             throw new IllegalArgumentException("Route cannot be null");
         }
@@ -62,12 +60,7 @@ public class OrderAggregate extends Aggregate {
             if (wp == null) {
                 throw new IllegalArgumentException("Waypoint cannot be null");
             }
-            if (Double.isNaN(wp.latitude()) || wp.latitude() < -90.0 || wp.latitude() > 90.0) {
-                throw new IllegalArgumentException("Invalid latitude: " + wp.latitude());
-            }
-            if (Double.isNaN(wp.longitude()) || wp.longitude() < -180.0 || wp.longitude() > 180.0) {
-                throw new IllegalArgumentException("Invalid longitude: " + wp.longitude());
-            }
+            wp.validate();
         }
         applyChange(OrderPlacedEvent.builder()
                 .aggregateId(aggregateId)
@@ -82,9 +75,7 @@ public class OrderAggregate extends Aggregate {
         if (!EnumSet.of(OrderStatus.PLACED, OrderStatus.ADJUSTED).contains(status)) {
             throw new AggregateStateException("Can't adjust the price of an order in status %s", status);
         }
-        if (command.getNewPrice() == null || command.getNewPrice().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("New price must be strictly positive");
-        }
+        validatePositivePrice(command.getNewPrice(), "New price must be strictly positive");
         if (this.price != null && this.price.compareTo(command.getNewPrice()) == 0) {
             throw new IllegalArgumentException("New price cannot be identical to current price");
         }
@@ -170,5 +161,11 @@ public class OrderAggregate extends Aggregate {
     @Override
     public String getAggregateType() {
         return AggregateType.ORDER.toString();
+    }
+
+    private static void validatePositivePrice(BigDecimal price, String errorMessage) {
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException(errorMessage);
+        }
     }
 }
