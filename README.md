@@ -597,30 +597,6 @@ In distributed systems and microservices, client retries or network blips can ca
 
 ![Command idempotency sequence](img/command-idempotency-sequence.svg)
 
-```mermaid
-flowchart TD
-    Start["Client sends Request + Idempotency-Key"] --> HasKey{"Has Idempotency-Key?"}
-    HasKey -- No --> ProcessNormal["Process Request Non-Idempotently"]
-    HasKey -- Yes --> Hash["Compute SHA-256 Request Hash\n(URL + Body Fingerprint)"]
-    Hash --> Lease["tryAcquireLease (REQUIRES_NEW)"]
-    
-    Lease --> CheckStatus{"Record Status in ES_IDEMPOTENCY_KEY?"}
-    
-    CheckStatus -- "Key Not Found" --> AcquireLease["Acquire Lease\n(INSERT Status = STARTED)"]
-    CheckStatus -- "COMPLETED & Same Hash" --> ReturnCached["Return Cached Response (200/201)\n(Header: Idempotent-Replayed: true)"]
-    CheckStatus -- "COMPLETED & Different Hash" --> Return422["Return HTTP 422 Unprocessable Entity\n(IDEMPOTENCY_KEY_MISMATCH)"]
-    CheckStatus -- "Status = STARTED (In-Flight)" --> Return409["Return HTTP 409 Conflict\n(Header: Retry-After: 1)"]
-    
-    AcquireLease --> Exec["Execute Command via CommandProcessor\n(Domain Invariants + OCC Event Store Commit)"]
-    Exec --> Success{"Execution Succeeded?"}
-    
-    Success -- Yes (2xx) --> MarkComplete["complete() (REQUIRES_NEW):\nUpdate Status = COMPLETED\nCache Response Payload & Status Code"]
-    MarkComplete --> ReturnNew["Return Response to Client"]
-    
-    Success -- Exception / Error --> Release["releaseLease() (REQUIRES_NEW):\nDelete Lease row so client can retry"]
-    Release --> ReturnErr["Throw Exception / Return Error Response"]
-```
-
 > [!TIP]
 > High-value mutation operations (`POST /orders`, `PUT /orders/{id}`) should always supply an `Idempotency-Key` UUIDv4.
 
@@ -677,197 +653,27 @@ PostgreSQL requires deliberate tuning for append-only, high-write event stores:
 
 ### <a id="4-11"></a>Visual architectural diagrams
 
-The following diagrams illustrate the core architectural concepts, control flows, and state machines implemented in this system.
+The following diagrams illustrate the core architectural concepts, control flows, and state machines implemented in this system, drawn with PlantUML and rendered in the repository's original SVG style:
 
 #### <a id="4-11-1"></a>CQRS and Event Sourcing end-to-end architecture
 
-```mermaid
-flowchart TD
-    subgraph Clients["Clients & Gateways"]
-        Client["Client Application / Frontend"]
-    end
-
-    subgraph CommandSide["Write Side (Command Stack)"]
-        Controller["OrdersController\n(Idempotency Filter)"]
-        CmdHandler["Specialized Command Handlers\n(Place, Adjust, Accept, Complete, Cancel)"]
-        OrderAgg["OrderAggregate\n(Validates Domain Invariants)"]
-        AggStore["AggregateStore & AggregateRepository"]
-    end
-
-    subgraph EventStoreDB["PostgreSQL Event Store (Write Model)"]
-        EsAgg["ES_AGGREGATE\n(Aggregate Root & Version)"]
-        EsEvent["ES_EVENT\n(xid8, JSONB, Schema Version)"]
-        EsIdemp["ES_IDEMPOTENCY_KEY\n(Request Deduplication)"]
-        Trigger["NOTIFY trigger\n(pg_notify channel)"]
-    end
-
-    subgraph QuerySide["Read Side (Query Stack)"]
-        SyncProj["OrderProjectionUpdater\n(Synchronous Read Model)"]
-        OrderProj["ORDER_PROJECTION\n(Query-Optimized Table)"]
-        QueryController["OrdersController\n(GET /orders/{id})"]
-    end
-
-    subgraph AsyncProcessing["Asynchronous Processing & Outbox"]
-        Listener["PostgresChannelEventSubscriptionProcessor\n(LISTEN/NOTIFY + Safety Poll)"]
-        BatchProc["EventSubscriptionBatchProcessor\n(Retry + DLQ Routing)"]
-        IntegrationPub["OrderIntegrationEventSender"]
-        Kafka[("Apache Kafka\n'order-events' Topic")]
-        DLQ["ES_EVENT_SUBSCRIPTION_DEAD_LETTER\n(Poison Pill Isolation)"]
-    end
-
-    Client -->|"POST / PUT (Command + Idempotency-Key)"| Controller
-    Controller -->|"Dispatch Command"| CmdHandler
-    CmdHandler -->|"Rehydrate & Apply"| OrderAgg
-    CmdHandler -->|"Persist Aggregate"| AggStore
-    AggStore -->|"Check & Increment Version (OCC)"| EsAgg
-    AggStore -->|"Append New Events"| EsEvent
-    Controller -.->|"Cache Response"| EsIdemp
-    EsEvent -->|"Fire Trigger"| Trigger
-
-    AggStore -->|"Synchronous Handler"| SyncProj
-    SyncProj -->|"Upsert Projection"| OrderProj
-    Client -->|"GET /orders/{id}"| QueryController
-    QueryController -->|"Fast Read"| OrderProj
-
-    Trigger -.->|"PostgreSQL Channel Notification"| Listener
-    Listener -->|"Batch Fetch Unprocessed Events"| EsEvent
-    Listener -->|"Process Batch"| BatchProc
-    BatchProc -->|"Publish Integration Event"| IntegrationPub
-    IntegrationPub -->|"At-Least-Once Delivery"| Kafka
-    BatchProc -.->|"After Max Retries"| DLQ
-```
+![CQRS and Event Sourcing end-to-end architecture](img/cqrs-event-sourcing-architecture.svg)
 
 #### <a id="4-11-2"></a>Command execution and optimistic concurrency control sequence
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client
-    participant Controller as OrdersController
-    participant Idemp as IdempotencyService
-    participant Processor as CommandProcessor
-    participant Handler as CommandHandler
-    participant Store as AggregateStore
-    participant DB as PostgreSQL (ES_AGGREGATE & ES_EVENT)
-    participant SyncProj as OrderProjectionUpdater
-
-    Client->>Controller: POST /orders (Payload, Idempotency-Key)
-    Controller->>Processor: process(PlaceOrderCommand, key, requestHash)
-    Processor->>Idemp: tryAcquireLease(key, requestHash)
-    alt Cached & Same Hash
-        Idemp-->>Processor: Cached Response
-        Processor-->>Controller: Cached Response
-        Controller-->>Client: 201 Created (Cached OrderDto, Idempotent-Replayed: true)
-    else Payload Tampering (Different Hash)
-        Idemp-->>Processor: IdempotencyPayloadMismatchException
-        Processor-->>Controller: Exception
-        Controller-->>Client: 422 Unprocessable Entity (IDEMPOTENCY_KEY_MISMATCH)
-    else In-Flight Concurrent Request (Status = STARTED)
-        Idemp-->>Processor: IdempotencyInProgressException
-        Processor-->>Controller: Exception
-        Controller-->>Client: 409 Conflict (Retry-After: 1)
-    else New Request (Lease Acquired: STARTED)
-        Processor->>Store: readAggregate(ORDER, orderId)
-        Store->>DB: Read latest snapshot & forward events
-        DB-->>Store: Snapshot + Event stream
-        Store-->>Processor: Rehydrated OrderAggregate (version=0)
-        Processor->>Handler: handle(OrderAggregate, Command)
-        Handler->>OrderAggregate: process(PlaceOrderCommand)
-        Note over OrderAggregate: Validates price > 0, riderId != null,<br/>waypoint coordinates [-90..90, -180..180]
-        OrderAggregate-->>Handler: OrderPlacedEvent registered
-        Processor->>Store: saveAggregate(OrderAggregate)
-        Store->>DB: UPDATE ES_AGGREGATE SET VERSION = 1 WHERE ID = :id AND VERSION = 0
-        alt OCC Conflict (Rows updated == 0)
-            DB-->>Store: 0 rows updated
-            Store-->>Processor: OptimisticConcurrencyException
-            Processor->>Idemp: releaseLease(key)
-            Processor-->>Controller: OptimisticConcurrencyException
-            Controller-->>Client: 409 Conflict (Concurrent Modification)
-        else Version increment successful
-            Store->>DB: INSERT INTO ES_EVENT (pg_current_xact_id(), aggregateId, version, data)
-            Store->>SyncProj: handleEvents(events, aggregate)
-            SyncProj->>DB: INSERT / UPDATE ORDER_PROJECTION
-            Store-->>Processor: Saved events
-            Processor->>Idemp: complete(key, aggregateId, 201, OrderDto)
-            Processor-->>Controller: Updated OrderAggregate
-            Controller-->>Client: 201 Created (OrderDto)
-        end
-    end
-```
+![Command execution and optimistic concurrency control sequence](img/command-execution-occ-sequence.svg)
 
 #### <a id="4-11-3"></a>Transactional outbox and PostgreSQL Listen/Notify flow
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant AppTx as Application Transaction
-    participant PG as PostgreSQL
-    participant SubProc as PostgresChannelEventSubscriptionProcessor
-    participant BatchProc as EventSubscriptionBatchProcessor
-    participant Kafka as Apache Kafka
-    participant DLQ as ES_EVENT_SUBSCRIPTION_DEAD_LETTER
-
-    AppTx->>PG: INSERT INTO ES_EVENT (TRANSACTION_ID=pg_current_xact_id(), ...)
-    AppTx->>PG: COMMIT
-    Note over PG: Trigger notify_event() executes pg_notify('es_event', ...)
-    PG-->>SubProc: Channel notification received (Immediate wakeup)
-    SubProc->>PG: SELECT * FROM ES_EVENT WHERE (TRANSACTION_ID, ID) > (lastTxId, lastId)<br/>AND TRANSACTION_ID < pg_snapshot_xmin(pg_current_snapshot())<br/>ORDER BY TRANSACTION_ID ASC, ID ASC LIMIT :batchSize
-    PG-->>SubProc: Batch of committed events
-    SubProc->>BatchProc: processEvents(events, subscription)
-    loop For each event in batch
-        alt Processing succeeds
-            BatchProc->>Kafka: send(OrderIntegrationEvent)
-            Kafka-->>BatchProc: Ack
-        else Handler failure / Poison pill
-            Note over BatchProc: Exponential backoff retry (1s, 2s, 4s)
-            alt Max retries exhausted
-                BatchProc->>DLQ: INSERT INTO ES_EVENT_SUBSCRIPTION_DEAD_LETTER
-                Note over BatchProc: Poison pill isolated; stream unblocked!
-            end
-        end
-    end
-    BatchProc->>PG: UPDATE ES_EVENT_SUBSCRIPTION SET LAST_TRANSACTION_ID=..., LAST_EVENT_ID=...
-```
+![Transactional outbox and PostgreSQL Listen/Notify flow](img/postgresql-listen-notify-outbox.svg)
 
 #### <a id="4-11-4"></a>Order aggregate state machine
 
-```mermaid
-stateDiagram-v2
-    [*] --> PLACED: PlaceOrderCommand\n(riderId, price > 0, valid route)
-    PLACED --> ADJUSTED: AdjustOrderPriceCommand\n(newPrice != price)
-    ADJUSTED --> ADJUSTED: AdjustOrderPriceCommand\n(newPrice != price)
-    PLACED --> ACCEPTED: AcceptOrderCommand\n(driverId != null, driverId != riderId)
-    ADJUSTED --> ACCEPTED: AcceptOrderCommand\n(driverId != null, driverId != riderId)
-    ACCEPTED --> COMPLETED: CompleteOrderCommand\n(must have assigned driver)
-    PLACED --> CANCELLED: CancelOrderCommand\n(optional reason)
-    ADJUSTED --> CANCELLED: CancelOrderCommand\n(optional reason)
-    ACCEPTED --> CANCELLED: CancelOrderCommand\n(optional reason)
-    COMPLETED --> [*]
-    CANCELLED --> [*]
-```
+![Order aggregate state machine](img/domain-2.svg)
 
 #### <a id="4-11-5"></a>Dead letter queue and admin replay sequence
 
-```mermaid
-flowchart TD
-    Event["Stream Event (ES_EVENT)"] --> SubProc["Subscription Processor"]
-    SubProc --> ExecHandler["Execute Async Handler"]
-    ExecHandler --> Result{"Success?"}
-    Result -- Yes --> Ack["Update Checkpoint in ES_EVENT_SUBSCRIPTION"]
-    Result -- No --> Retry{"Retry < Max (3)?"}
-    Retry -- Yes --> Backoff["Exponential Backoff (1s, 2s, 4s)"] --> ExecHandler
-    Retry -- No --> SaveDLQ["Persist to ES_EVENT_SUBSCRIPTION_DEAD_LETTER\n(Error message, stack trace, payload)"]
-    SaveDLQ --> Ack
-    SaveDLQ -.-> Alert["Prometheus Metric: event_sourcing_dlq_events_total"]
-
-    subgraph AdminOps["Day-2 Admin Operations"]
-        AdminUser["Operator / Admin"] --> Inspect["GET /admin/subscriptions/dlq"]
-        Inspect --> FixCause["Fix Root Cause / Target Service"]
-        FixCause --> Replay["POST /admin/subscriptions/dlq/{id}/replay"]
-        Replay --> ReExec["Re-invoke Handler"]
-        ReExec --> DelDLQ["DELETE from DLQ on Success"]
-    end
-```
+![Dead letter queue and admin replay sequence](img/subscription-dead-letter-admin.svg)
 
 ## <a id="5"></a>Project structure
 

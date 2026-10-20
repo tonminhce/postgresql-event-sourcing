@@ -1,0 +1,51 @@
+@startuml
+
+scale max 1024 width
+scale max 1100 height
+
+skinparam sequence {
+  LifeLineBorderColor Grey
+}
+
+actor "Admin / Operator" as admin
+participant "EventSourcingAdminController" as adminCtrl
+participant "EventSubscriptionDeadLetterService" as dlqService
+database "ES_EVENT_SUBSCRIPTION\n_DEAD_LETTER" as dlqDb
+participant "AsyncEventHandler\n(OrderIntegrationEventSender)" as handler
+queue "Apache Kafka" as kafka
+
+== 1. Inspect Dead Letter Queue ==
+admin -> adminCtrl: GET /admin/subscriptions/dlq?page=0&size=20
+activate adminCtrl
+adminCtrl -> dlqService: getDeadLetters(pageable)
+activate dlqService
+dlqService -> dlqDb: ""SELECT * FROM ES_EVENT_SUBSCRIPTION_DEAD_LETTER""\n""ORDER BY ID DESC LIMIT 20""
+dlqDb --> dlqService: List of DeadLetterRecords
+dlqService --> adminCtrl: Page<DeadLetterDto>
+deactivate dlqService
+adminCtrl --> admin: 200 OK (DeadLetterDto list)
+deactivate adminCtrl
+
+== 2. Fix Root Cause & Replay Dead Letter ==
+note over admin: Operator resolves downstream issue\n(e.g., restores Kafka topic or connectivity)
+admin -> adminCtrl: POST /admin/subscriptions/dlq/{id}/replay
+activate adminCtrl
+adminCtrl -> dlqService: replayDeadLetter(id)
+activate dlqService
+dlqService -> dlqDb: ""SELECT * FROM ES_EVENT_SUBSCRIPTION_DEAD_LETTER WHERE ID = :id""
+dlqDb --> dlqService: DeadLetterRecord
+dlqService -> handler: handleEvent(eventWithId)
+activate handler
+handler -> kafka: send(OrderIntegrationEvent)
+kafka --> handler: Ack
+handler --> dlqService: Success
+deactivate handler
+
+dlqService -> dlqDb: ""DELETE FROM ES_EVENT_SUBSCRIPTION_DEAD_LETTER WHERE ID = :id""
+dlqDb --> dlqService: 1 row deleted
+dlqService --> adminCtrl: true (Replay successful)
+deactivate dlqService
+adminCtrl --> admin: 200 OK (Replay successful)
+deactivate adminCtrl
+
+@enduml

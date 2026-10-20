@@ -1,0 +1,73 @@
+@startuml
+
+scale max 1280 width
+scale max 1000 height
+
+skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+
+skinparam database {
+  BackgroundColor<<PostgreSQL>> #336791
+  FontColor White
+}
+
+actor "Client" as client
+
+package "Write Model (Command Stack)" #line.dashed {
+  component "OrdersController\n(Idempotency Filter)" as ctrl #lightblue
+  component "CommandProcessor" as processor #lightblue
+  component "Specialized\nCommand Handlers" as cmdHandlers #lightblue
+  component "OrderAggregate\n(Validates Invariants)" as agg #lightblue
+  component "AggregateStore" as store #lightblue
+}
+
+database "PostgreSQL\n(Event Store & Outbox)" as postgres <<PostgreSQL>> {
+  component "ES_AGGREGATE\n(Version OCC)" as aggTbl
+  component "ES_EVENT\n(xid8, JSONB, Metadata)" as eventTbl
+  component "ES_IDEMPOTENCY_KEY\n(STARTED / COMPLETED)" as idempTbl
+  component "ES_AGGREGATE_SNAPSHOT\n(Compacted Snapshots)" as snapTbl
+  component "ES_EVENT_SUBSCRIPTION\n(Outbox Checkpoints)" as subTbl
+  component "ES_EVENT_SUBSCRIPTION_DEAD_LETTER\n(Poison Pill Isolation)" as dlqTbl
+}
+
+package "Read Model (Query Stack)" #line.dashed {
+  component "Synchronous\nOrderProjectionUpdater" as syncProj #lightgreen
+  database "Read Database\n(RM_ORDER &\nRM_ORDER_ROUTE)" as readDb #lightgreen
+  component "OrdersController\n(GET /orders/{id})" as queryCtrl #lightgreen
+}
+
+package "Asynchronous Processing & Message Broker" #line.dashed {
+  component "PostgreSQL Channel\nSubscription Processor\n(LISTEN/NOTIFY)" as channelProc #lightblue
+  component "Batch Processor\n(Retry & DLQ Routing)" as batchProc #lightblue
+  component "OrderIntegrationEventSender" as integrationSender #lightblue
+  queue "Apache Kafka\n('order-events' Topic)" as kafka #White
+}
+
+client --> ctrl: **1.** POST / PUT (Command + Idempotency-Key)
+ctrl -> processor: **2.** Dispatch command
+processor --> idempTbl: **3.** Try acquire lease / check cache
+processor -> store: **4.** Rehydrate aggregate
+store --> snapTbl: Read snapshot
+store --> eventTbl: Forward events
+processor -> cmdHandlers: **5.** Execute command
+cmdHandlers -> agg: Apply business logic
+processor -> store: **6.** Save aggregate
+store --> aggTbl: Update version (OCC)
+store --> eventTbl: Append new events
+store --> idempTbl: Complete lease (COMPLETED)
+
+store -> syncProj: **7.** Synchronous event notification
+syncProj --> readDb: Upsert read projections
+client ..> queryCtrl: Queries (GET /orders)
+queryCtrl ..> readDb: Fast query read model
+
+postgres -.-> channelProc: **8.** Trigger notification (Immediate wakeup)
+channelProc --> eventTbl: Fetch committed event batch
+channelProc -> batchProc: Process batch
+batchProc -> integrationSender: Invoke handler
+integrationSender -> kafka: **9.** Publish integration event
+batchProc -.-> dlqTbl: **10.** Quarantine poison pill after retries
+batchProc --> subTbl: Advance checkpoint
+
+@enduml

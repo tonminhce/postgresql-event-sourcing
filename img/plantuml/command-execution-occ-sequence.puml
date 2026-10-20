@@ -1,0 +1,61 @@
+@startuml
+
+scale max 1024 width
+scale max 1100 height
+
+skinparam sequence {
+  LifeLineBorderColor Grey
+}
+
+actor "Client" as client
+participant "OrdersController" as controller
+participant "CommandProcessor" as processor
+participant "CommandHandler" as handler
+participant "AggregateStore" as store
+database "PostgreSQL\nES_AGGREGATE &\nES_EVENT" as db
+participant "OrderProjectionUpdater" as syncProj
+database "PostgreSQL\nORDER_PROJECTION" as projDb
+
+client -> controller: POST /orders (PlaceOrderRequest)
+activate controller
+controller -> processor: process(PlaceOrderCommand)
+activate processor
+processor -> store: readAggregate("ORDER", orderId)
+activate store
+store -> db: Read snapshot & forward events
+db --> store: Snapshot + Event stream
+store --> processor: Rehydrated OrderAggregate (version=0)
+deactivate store
+
+processor -> handler: handle(OrderAggregate, Command)
+activate handler
+handler -> handler: OrderAggregate.process(PlaceOrderCommand)\nValidate price > 0, riderId != null, route coordinates
+handler --> processor: OrderPlacedEvent registered
+deactivate handler
+
+processor -> store: saveAggregate(OrderAggregate)
+activate store
+store --> db: ""UPDATE ES_AGGREGATE SET VERSION = 1""\n""WHERE ID = :id AND VERSION = 0""
+
+alt OCC Conflict (Rows updated == 0)
+  db --> store: 0 rows updated
+  store --> processor: throws OptimisticConcurrencyException
+  processor --> controller: throws OptimisticConcurrencyException
+  controller --> client: HTTP 409 Conflict (Concurrent Modification)
+else Version increment successful
+  db --> store: 1 row updated
+  store --> db: ""INSERT INTO ES_EVENT (TRANSACTION_ID=pg_current_xact_id(), ...)""
+  store -> syncProj: handleEvents(events, aggregate)
+  activate syncProj
+  syncProj --> projDb: ""INSERT / UPDATE RM_ORDER & RM_ORDER_ROUTE""
+  deactivate syncProj
+  store --> processor: Events committed
+  deactivate store
+  processor --> controller: Updated OrderAggregate
+  controller --> client: HTTP 201 Created (OrderDto)
+end
+
+deactivate processor
+deactivate controller
+
+@enduml

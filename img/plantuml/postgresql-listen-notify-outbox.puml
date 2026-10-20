@@ -1,0 +1,47 @@
+@startuml
+
+scale max 1024 width
+scale max 1100 height
+
+skinparam sequence {
+  LifeLineBorderColor Grey
+}
+
+participant "Application\nTransaction" as appTx
+database "PostgreSQL" as db
+participant "PostgresChannelEvent\nSubscriptionProcessor" as subProc
+participant "EventSubscription\nBatchProcessor" as batchProc
+queue "Apache Kafka" as kafka
+database "ES_EVENT_SUBSCRIPTION\n_DEAD_LETTER" as dlq
+
+appTx --> db: ""BEGIN TRANSACTION""
+activate appTx
+appTx --> db: ""INSERT INTO ES_EVENT (TRANSACTION_ID=pg_current_xact_id(), ...)""
+appTx --> db: ""COMMIT""
+deactivate appTx
+note over db: PostgreSQL trigger notify_event()\nexecutes pg_notify('es_event', ...)
+db -->> subProc: Channel notification received (Immediate wakeup)
+activate subProc
+subProc --> db: ""SELECT * FROM ES_EVENT WHERE (TRANSACTION_ID, ID) > (:lastTxId, :lastId)""\n""AND TRANSACTION_ID < pg_snapshot_xmin(pg_current_snapshot())""\n""ORDER BY TRANSACTION_ID ASC, ID ASC LIMIT :batchSize""
+db --> subProc: Batch of committed events
+subProc -> batchProc: processEvents(events, subscription)
+activate batchProc
+
+loop For each event in batch
+  alt Processing succeeds
+    batchProc -> kafka: send(OrderIntegrationEvent)
+    kafka --> batchProc: Ack
+  else Handler failure / Poison pill
+    note over batchProc: Exponential backoff retry (1s, 2s, 4s)
+    alt Max retries exhausted
+      batchProc --> dlq: ""INSERT INTO ES_EVENT_SUBSCRIPTION_DEAD_LETTER (...)""
+      note over batchProc: Poison pill isolated, stream unblocked
+    end
+  end
+end
+
+batchProc --> db: ""UPDATE ES_EVENT_SUBSCRIPTION""\n""SET LAST_TRANSACTION_ID=:txId, LAST_EVENT_ID=:id""
+deactivate batchProc
+deactivate subProc
+
+@enduml
