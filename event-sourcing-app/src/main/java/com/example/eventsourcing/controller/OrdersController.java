@@ -28,6 +28,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -48,6 +50,7 @@ public class OrdersController {
             @Valid @RequestBody PlaceOrderRequest request) throws JsonProcessingException {
 
         UUID deterministicOrderId = toDeterministicOrderId(idempotencyKey);
+        String requestHash = computeRequestHash(request);
 
         CommandExecutionResult result = commandProcessor.process(
                 new PlaceOrderCommand(
@@ -57,12 +60,18 @@ public class OrdersController {
                         request.route()
                 ),
                 idempotencyKey,
+                requestHash,
                 agg -> "{\"orderId\":\"" + agg.getAggregateId() + "\"}",
                 200
         );
 
-        return ResponseEntity.status(result.statusCode())
-                .body(objectMapper.readTree(result.responseBody()));
+        var responseBuilder = ResponseEntity.status(result.statusCode());
+        if (result.replayedFromIdempotency()) {
+            responseBuilder.header("Idempotent-Replayed", "true");
+            responseBuilder.header("Idempotency-Key", idempotencyKey);
+        }
+
+        return responseBuilder.body(objectMapper.readTree(result.responseBody()));
     }
 
     @PutMapping("/{orderId}")
@@ -71,10 +80,17 @@ public class OrdersController {
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody ModifyOrderRequest request) {
 
+        String requestHash = computeRequestHash(request);
         Command command = toModifyCommand(orderId, request);
-        CommandExecutionResult result = commandProcessor.process(command, idempotencyKey, agg -> "{}", 200);
+        CommandExecutionResult result = commandProcessor.process(command, idempotencyKey, requestHash, agg -> "{}", 200);
 
-        return ResponseEntity.status(result.statusCode()).build();
+        var responseBuilder = ResponseEntity.status(result.statusCode());
+        if (result.replayedFromIdempotency()) {
+            responseBuilder.header("Idempotent-Replayed", "true");
+            responseBuilder.header("Idempotency-Key", idempotencyKey);
+        }
+
+        return responseBuilder.build();
     }
 
     @GetMapping
@@ -118,5 +134,15 @@ public class OrdersController {
         return StringUtils.hasText(idempotencyKey)
                 ? UUID.nameUUIDFromBytes(idempotencyKey.getBytes(UTF_8))
                 : null;
+    }
+
+    private String computeRequestHash(Object request) {
+        try {
+            byte[] bytes = objectMapper.writeValueAsBytes(request);
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(md.digest(bytes));
+        } catch (Exception e) {
+            return "";
+        }
     }
 }

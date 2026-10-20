@@ -569,19 +569,24 @@ Using PostgreSQL as an event store has a lot of advantages, but there are also d
 
 To transform this reference architecture into an enterprise-ready foundation, six critical resilience, schema evolution, and performance subsystems have been integrated:
 
-#### <a id="4-10-1"></a>Command idempotency
+#### <a id="4-10-1"></a>Command idempotency (IETF RFC 9440 & Stripe Specification)
 
-In distributed networks, clients or API gateways often retry network requests due to transient timeouts. Without deduplication, duplicate writes can occur (e.g., charging twice or duplicating orders).
+In distributed systems and microservices, client retries or network blips can cause duplicate requests. Without strict deduplication, duplicate writes occur (e.g., duplicate orders, double payments). This system implements the **IETF RFC 9440** and **Stripe/PayPal idempotency standard**:
 
-* **Mechanism**: Clients supply an optional `Idempotency-Key` HTTP header (or a deterministic UUID / hash is derived).
-* **Storage**: The `ES_IDEMPOTENCY_KEY` table (Flyway migration V8) records the key, aggregate ID, HTTP status code, response payload, and creation timestamp.
-* **Flow**:
-  1. [`IdempotencyService`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/IdempotencyService.java) queries `ES_IDEMPOTENCY_KEY`.
-  2. If the key exists, the cached JSON response and status are immediately returned to the caller with zero side effects.
-  3. If new, the command is processed by [`CommandProcessor`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/CommandProcessor.java), and the result is committed atomically with the command transaction.
+* **Client-Driven Key**: The client generates a unique UUIDv4 and passes it via the `Idempotency-Key` HTTP header.
+* **Request Fingerprinting**: The server computes a SHA-256 hash of the request URL and raw JSON payload (`REQUEST_HASH`).
+* **Two-Phase Distributed Locking & Storage (`ES_IDEMPOTENCY_KEY`, Migrations V8 & V11)**:
+  1. **Phase 1 (Lease Acquisition)**: [`CommandProcessor`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/CommandProcessor.java) calls [`IdempotencyService.tryAcquireLease`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/command/IdempotencyService.java) in an autonomous transaction (`Propagation.REQUIRES_NEW`).
+     - **Cache Hit (Completed)**: If the key was already processed with the **same hash**, the cached HTTP status and body are immediately returned with `Idempotent-Replayed: true` (zero duplicate execution).
+     - **Payload Tampering Mismatch**: If the key was already used with a **different payload hash**, an `IdempotencyPayloadMismatchException` is thrown, returning **`HTTP 422 Unprocessable Entity`** with error code `IDEMPOTENCY_KEY_MISMATCH`.
+     - **Concurrent In-Flight Collision**: If the key is currently `STARTED` by another concurrent thread/pod, an `IdempotencyInProgressException` is thrown, returning **`HTTP 409 Conflict`** with header **`Retry-After: 1`**.
+     - **New Request**: An in-flight lease is atomically inserted into `ES_IDEMPOTENCY_KEY` with status `STARTED`.
+  2. **Phase 2 (Completion or Release)**:
+     - **Success**: Upon successful domain processing and event commit, the lease transitions to `COMPLETED` along with the HTTP status and serialized response body.
+     - **Failure**: If an unhandled exception or invariant violation occurs, the lease is immediately released (`releaseLease`), allowing the client to fix parameters and retry with the same key.
 
 > [!TIP]
-> Always send an `Idempotency-Key` (e.g. UUIDv4) in high-value mutation operations (`POST /orders`, `PUT /orders/{id}`) to safeguard against duplicate client invocations.
+> High-value mutation operations (`POST /orders`, `PUT /orders/{id}`) should always supply an `Idempotency-Key` UUIDv4.
 
 #### <a id="4-10-2"></a>Event upcasting and schema evolution
 
@@ -709,12 +714,21 @@ sequenceDiagram
     participant SyncProj as OrderProjectionUpdater
 
     Client->>Controller: POST /orders (Payload, Idempotency-Key)
-    Controller->>Idemp: checkAndGetExisting(key)
-    alt Key already exists
-        Idemp-->>Controller: Return cached response
-        Controller-->>Client: 200 OK (Cached OrderDto)
-    else New request
-        Controller->>Processor: process(PlaceOrderCommand)
+    Controller->>Processor: process(PlaceOrderCommand, key, requestHash)
+    Processor->>Idemp: tryAcquireLease(key, requestHash)
+    alt Cached & Same Hash
+        Idemp-->>Processor: Cached Response
+        Processor-->>Controller: Cached Response
+        Controller-->>Client: 201 Created (Cached OrderDto, Idempotent-Replayed: true)
+    else Payload Tampering (Different Hash)
+        Idemp-->>Processor: IdempotencyPayloadMismatchException
+        Processor-->>Controller: Exception
+        Controller-->>Client: 422 Unprocessable Entity (IDEMPOTENCY_KEY_MISMATCH)
+    else In-Flight Concurrent Request (Status = STARTED)
+        Idemp-->>Processor: IdempotencyInProgressException
+        Processor-->>Controller: Exception
+        Controller-->>Client: 409 Conflict (Retry-After: 1)
+    else New Request (Lease Acquired: STARTED)
         Processor->>Store: readAggregate(ORDER, orderId)
         Store->>DB: Read latest snapshot & forward events
         DB-->>Store: Snapshot + Event stream
@@ -727,15 +741,17 @@ sequenceDiagram
         Store->>DB: UPDATE ES_AGGREGATE SET VERSION = 1 WHERE ID = :id AND VERSION = 0
         alt OCC Conflict (Rows updated == 0)
             DB-->>Store: 0 rows updated
-            Store-->>Controller: OptimisticConcurrencyException
+            Store-->>Processor: OptimisticConcurrencyException
+            Processor->>Idemp: releaseLease(key)
+            Processor-->>Controller: OptimisticConcurrencyException
             Controller-->>Client: 409 Conflict (Concurrent Modification)
         else Version increment successful
             Store->>DB: INSERT INTO ES_EVENT (pg_current_xact_id(), aggregateId, version, data)
             Store->>SyncProj: handleEvents(events, aggregate)
             SyncProj->>DB: INSERT / UPDATE ORDER_PROJECTION
             Store-->>Processor: Saved events
+            Processor->>Idemp: complete(key, aggregateId, 201, OrderDto)
             Processor-->>Controller: Updated OrderAggregate
-            Controller->>Idemp: recordResponse(key, 201, OrderDto)
             Controller-->>Client: 201 Created (OrderDto)
         end
     end
@@ -835,7 +851,7 @@ Event sourcing related code and application specific code are located in separat
 
 ### <a id="5-2"></a>Database schema migrations
 
-The database schema is managed via Flyway across 10 incremental, production-hardened migrations:
+The database schema is managed via Flyway across 11 incremental, production-hardened migrations:
 
 * [V1__eventsourcing_tables.sql](event-sourcing-app/src/main/resources/db/migration/V1__eventsourcing_tables.sql) &mdash; Core event store tables (`ES_AGGREGATE`, `ES_EVENT` with 64-bit `xid8 TRANSACTION_ID`, `ES_EVENT_SUBSCRIPTION`).
 * [V2__notify_trigger.sql](event-sourcing-app/src/main/resources/db/migration/V2__notify_trigger.sql) &mdash; PostgreSQL `notify_event()` trigger function executing `pg_notify('es_event', ...)` on every committed event.
@@ -847,6 +863,7 @@ The database schema is managed via Flyway across 10 incremental, production-hard
 * [V8__idempotency_keys.sql](event-sourcing-app/src/main/resources/db/migration/V8__idempotency_keys.sql) &mdash; API request deduplication table (`ES_IDEMPOTENCY_KEY`).
 * [V9__performance_tuning.sql](event-sourcing-app/src/main/resources/db/migration/V9__performance_tuning.sql) &mdash; PostgreSQL engine tuning (`autovacuum_vacuum_scale_factor = 0.05`, `fillfactor = 100`, composite pagination index).
 * [V10__index_cleanup.sql](event-sourcing-app/src/main/resources/db/migration/V10__index_cleanup.sql) &mdash; Drops redundant indexes and optimizes DLQ pagination index.
+* [V11__idempotency_ietf_enhancement.sql](event-sourcing-app/src/main/resources/db/migration/V11__idempotency_ietf_enhancement.sql) &mdash; Adds `STATUS` (`STARTED`, `COMPLETED`, `FAILED`) and `REQUEST_HASH` (SHA-256) to `ES_IDEMPOTENCY_KEY`, enabling distributed concurrent in-flight leases, payload fingerprint verification (IETF RFC 9440 & Stripe specification), and duplicate response caching.
 
 ### <a id="5-3"></a>Class diagrams
 

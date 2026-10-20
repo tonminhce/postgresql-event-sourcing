@@ -19,10 +19,17 @@ import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 
+import eventsourcing.postgresql.error.IdempotencyInProgressException;
+import eventsourcing.postgresql.error.IdempotencyPayloadMismatchException;
+
 @ControllerAdvice
 public class RestResponseEntityExceptionHandler extends ResponseEntityExceptionHandler {
 
-    public record ErrorResponse(String error) {}
+    public record ErrorResponse(String error, String code) {
+        public ErrorResponse(String error) {
+            this(error, null);
+        }
+    }
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
@@ -32,6 +39,19 @@ public class RestResponseEntityExceptionHandler extends ResponseEntityExceptionH
                 .map(FieldError::getDefaultMessage)
                 .orElse("Validation error");
         return ResponseEntity.badRequest().body(new ErrorResponse(errorMessage));
+    }
+
+    @ExceptionHandler(IdempotencyPayloadMismatchException.class)
+    protected ResponseEntity<ErrorResponse> handlePayloadMismatch(IdempotencyPayloadMismatchException ex) {
+        return ResponseEntity.status(UNPROCESSABLE_ENTITY)
+                .body(new ErrorResponse(ex.getMessage(), "IDEMPOTENCY_KEY_MISMATCH"));
+    }
+
+    @ExceptionHandler(IdempotencyInProgressException.class)
+    protected ResponseEntity<ErrorResponse> handleInProgress(IdempotencyInProgressException ex) {
+        return ResponseEntity.status(CONFLICT)
+                .header("Retry-After", "1")
+                .body(new ErrorResponse(ex.getMessage()));
     }
 
     @ExceptionHandler({OptimisticConcurrencyControlException.class, IdempotencyConflictException.class})
