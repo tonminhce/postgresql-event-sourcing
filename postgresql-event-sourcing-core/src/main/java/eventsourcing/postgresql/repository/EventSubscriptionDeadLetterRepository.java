@@ -16,6 +16,7 @@ import java.io.StringWriter;
 import java.math.BigInteger;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -76,7 +77,9 @@ public class EventSubscriptionDeadLetterRepository {
 
         String nameParam = StringUtils.hasText(subscriptionName) ? subscriptionName : null;
         var params = new MapSqlParameterSource()
-                .addValue("subscriptionName", nameParam)
+                // The SQL type must be declared explicitly, otherwise PostgreSQL cannot infer
+                // the type of a NULL bound parameter ("could not determine data type of parameter $1")
+                .addValue("subscriptionName", nameParam, Types.VARCHAR)
                 .addValue("limit", limit);
 
         return jdbcTemplate.query(sql, params, this::toRecord);

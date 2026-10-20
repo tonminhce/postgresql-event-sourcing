@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 @Service
@@ -34,6 +35,10 @@ public class OrderProjectionRebuildService {
     public OrderProjection rebuildOrder(UUID orderId) {
         log.info("Rebuilding projection for order {}", orderId);
         OrderAggregate aggregate = (OrderAggregate) aggregateStore.readAggregate(AggregateType.ORDER.name(), orderId);
+        if (aggregate.getVersion() == 0) {
+            // The aggregate has no events, so there is no order to rebuild a projection from.
+            throw new NoSuchElementException("Order not found for ID: " + orderId);
+        }
         OrderProjection projection = orderMapper.toProjection(aggregate);
         OrderProjection merged = entityManager.merge(projection);
         entityManager.flush();

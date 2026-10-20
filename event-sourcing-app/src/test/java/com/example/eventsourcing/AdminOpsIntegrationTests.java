@@ -21,6 +21,7 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -169,5 +170,71 @@ class AdminOpsIntegrationTests extends AbstractContainerBaseTest {
                 dlqId
         );
         assertThat(remainingCount).isEqualTo(0);
+    }
+
+    @Test
+    void shouldListDeadLettersWithoutSubscriptionNameFilter() throws Exception {
+        // Place an order to ensure at least one event exists
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        String payload = """
+                {
+                  "riderId":"7f9217e7-c2ed-4919-9e7f-9ca5c2d9dd83",
+                  "price":"200.00",
+                  "route":[]
+                }
+                """;
+
+        ResponseEntity<String> placeResponse = restTemplate.exchange(
+                "/orders",
+                HttpMethod.POST,
+                new HttpEntity<>(payload, headers),
+                String.class
+        );
+        assertThat(placeResponse.getStatusCode().is2xxSuccessful()).isTrue();
+        JsonNode json = objectMapper.readTree(placeResponse.getBody());
+        UUID orderId = UUID.fromString(json.get("orderId").asText());
+
+        Long eventId = jdbcTemplate.queryForObject(
+                "SELECT ID FROM ES_EVENT WHERE AGGREGATE_ID = ? LIMIT 1",
+                Long.class,
+                orderId
+        );
+        assertThat(eventId).isNotNull();
+
+        String transactionIdStr = jdbcTemplate.queryForObject(
+                "SELECT TRANSACTION_ID::text FROM ES_EVENT WHERE ID = ?",
+                String.class,
+                eventId
+        );
+
+        String subscriptionName = OrderIntegrationEventSender.class.getName();
+        jdbcTemplate.update("""
+                INSERT INTO ES_EVENT_SUBSCRIPTION_DEAD_LETTER
+                    (SUBSCRIPTION_NAME, EVENT_ID, TRANSACTION_ID, AGGREGATE_TYPE, EVENT_TYPE, ERROR_MESSAGE, STACK_TRACE, RETRY_COUNT)
+                VALUES
+                    (?, ?, ?::xid8, 'ORDER', 'OrderPlacedEvent', 'Simulated failure', 'Test Stacktrace', 3)
+                """, subscriptionName, eventId, transactionIdStr);
+
+        // Fetch DLQ entries without the optional subscriptionName filter
+        ResponseEntity<String> dlqResponse = restTemplate.getForEntity(
+                "/admin/subscriptions/dlq",
+                String.class
+        );
+        assertThat(dlqResponse.getStatusCode().is2xxSuccessful()).isTrue();
+        JsonNode dlqList = objectMapper.readTree(dlqResponse.getBody());
+        assertThat(dlqList.isArray()).isTrue();
+        assertThat(dlqList.size()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenRebuildingProjectionOfUnknownOrder() {
+        ResponseEntity<String> rebuildResponse = restTemplate.postForEntity(
+                "/admin/projections/orders/" + UUID.randomUUID() + "/rebuild",
+                null,
+                String.class
+        );
+        assertThat(rebuildResponse.getStatusCode()).isEqualTo(NOT_FOUND);
     }
 }
