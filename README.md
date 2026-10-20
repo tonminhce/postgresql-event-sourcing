@@ -261,7 +261,15 @@ Subscribing on events requires additional implementation.
 
 ![PostgreSQL event store ER diagram](img/er-diagram.svg)
 
-Events are stored in the `ES_EVENT` table.
+The database schema consists of the write-side event store & outbox tables and the read-side projection tables:
+
+* **`ES_AGGREGATE`**: Root entity tracking aggregate ID, aggregate type, and current version for Optimistic Concurrency Control.
+* **`ES_EVENT`**: Immutable, append-only event stream recording 64-bit PostgreSQL `TRANSACTION_ID (xid8)`, `VERSION`, `EVENT_TYPE`, payload `JSON_DATA (JSONB)`, and distributed tracing `METADATA (JSONB)`.
+* **`ES_AGGREGATE_SNAPSHOT`**: Periodic aggregate snapshot table compacted via upsert (`ON CONFLICT DO UPDATE`) for accelerated aggregate rehydration.
+* **`ES_IDEMPOTENCY_KEY`**: Distributed lease and request deduplication table tracking client idempotency key, aggregate ID, status code, response body, `STATUS` (`STARTED`, `COMPLETED`, `FAILED`), and SHA-256 `REQUEST_HASH`.
+* **`ES_EVENT_SUBSCRIPTION`**: Transactional outbox subscription checkpoints storing `LAST_TRANSACTION_ID (xid8)` and `LAST_EVENT_ID`.
+* **`ES_EVENT_SUBSCRIPTION_DEAD_LETTER`**: Poison pill isolation table preserving failed event payloads, error messages, and exception stack traces without blocking stream progress.
+* **`RM_ORDER` & `RM_ORDER_ROUTE`**: Read model query projections updated synchronously upon event append.
 
 ### <a id="4-3"></a>Optimistic concurrency control
 
@@ -584,6 +592,30 @@ In distributed systems and microservices, client retries or network blips can ca
   2. **Phase 2 (Completion or Release)**:
      - **Success**: Upon successful domain processing and event commit, the lease transitions to `COMPLETED` along with the HTTP status and serialized response body.
      - **Failure**: If an unhandled exception or invariant violation occurs, the lease is immediately released (`releaseLease`), allowing the client to fix parameters and retry with the same key.
+
+```mermaid
+flowchart TD
+    Start["Client sends Request + Idempotency-Key"] --> HasKey{"Has Idempotency-Key?"}
+    HasKey -- No --> ProcessNormal["Process Request Non-Idempotently"]
+    HasKey -- Yes --> Hash["Compute SHA-256 Request Hash\n(URL + Body Fingerprint)"]
+    Hash --> Lease["tryAcquireLease (REQUIRES_NEW)"]
+    
+    Lease --> CheckStatus{"Record Status in ES_IDEMPOTENCY_KEY?"}
+    
+    CheckStatus -- "Key Not Found" --> AcquireLease["Acquire Lease\n(INSERT Status = STARTED)"]
+    CheckStatus -- "COMPLETED & Same Hash" --> ReturnCached["Return Cached Response (200/201)\n(Header: Idempotent-Replayed: true)"]
+    CheckStatus -- "COMPLETED & Different Hash" --> Return422["Return HTTP 422 Unprocessable Entity\n(IDEMPOTENCY_KEY_MISMATCH)"]
+    CheckStatus -- "Status = STARTED (In-Flight)" --> Return409["Return HTTP 409 Conflict\n(Header: Retry-After: 1)"]
+    
+    AcquireLease --> Exec["Execute Command via CommandProcessor\n(Domain Invariants + OCC Event Store Commit)"]
+    Exec --> Success{"Execution Succeeded?"}
+    
+    Success -- Yes (2xx) --> MarkComplete["complete() (REQUIRES_NEW):\nUpdate Status = COMPLETED\nCache Response Payload & Status Code"]
+    MarkComplete --> ReturnNew["Return Response to Client"]
+    
+    Success -- Exception / Error --> Release["releaseLease() (REQUIRES_NEW):\nDelete Lease row so client can retry"]
+    Release --> ReturnErr["Throw Exception / Return Error Response"]
+```
 
 > [!TIP]
 > High-value mutation operations (`POST /orders`, `PUT /orders/{id}`) should always supply an `Idempotency-Key` UUIDv4.

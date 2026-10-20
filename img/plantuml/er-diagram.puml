@@ -2,13 +2,13 @@
 
 hide circle
 
-scale max 1024 width
-scale max 800 height
+scale max 1280 width
+scale max 1000 height
 
 skinparam linetype ortho
 skinparam packageStyle rectangle
 
-package "Domain Model" #line.dashed {
+package "Domain Model (Event Store & Outbox)" #line.dashed {
   entity "**ES_AGGREGATE**" {
     + ""ID"": //uuid [PK]//
     --
@@ -18,9 +18,9 @@ package "Domain Model" #line.dashed {
 
   entity "**ES_AGGREGATE_SNAPSHOT**" {
     + ""AGGREGATE_ID"": //uuid [PK][FK]//
-    + ""VERSION"": //integer [PK]//
     --
-    *""JSON_DATA"": //json //
+    *""VERSION"": //integer //
+    *""JSON_DATA"": //jsonb //
   }
 
   entity "**ES_EVENT**" {
@@ -30,7 +30,19 @@ package "Domain Model" #line.dashed {
     *""AGGREGATE_ID"": //uuid [FK]//
     *""VERSION"": //integer //
     *""EVENT_TYPE"": //text //
-    *""JSON_DATA"": //json //
+    *""JSON_DATA"": //jsonb //
+    *""METADATA"": //jsonb //
+  }
+
+  entity "**ES_IDEMPOTENCY_KEY**" {
+    + ""KEY"": //text [PK]//
+    --
+    *""AGGREGATE_ID"": //uuid [FK]//
+    *""STATUS_CODE"": //integer //
+    *""RESPONSE_BODY"": //jsonb //
+    *""STATUS"": //text //
+    *""REQUEST_HASH"": //text //
+    *""CREATED_AT"": //timestamp with time zone //
   }
 
   entity "**ES_EVENT_SUBSCRIPTION**" {
@@ -39,9 +51,24 @@ package "Domain Model" #line.dashed {
     *""LAST_TRANSACTION_ID"": //xid8 //
     *""LAST_EVENT_ID"": //bigint //
   }
+
+  entity "**ES_EVENT_SUBSCRIPTION_DEAD_LETTER**" {
+    + ""ID"": //bigserial [PK]//
+    --
+    *""SUBSCRIPTION_NAME"": //text //
+    *""EVENT_ID"": //bigint //
+    *""TRANSACTION_ID"": //xid8 //
+    *""AGGREGATE_ID"": //uuid //
+    *""EVENT_TYPE"": //text //
+    *""EXCEPTION_CLASS"": //text //
+    *""ERROR_MESSAGE"": //text //
+    *""STACK_TRACE"": //text //
+    *""PAYLOAD"": //jsonb //
+    *""CREATED_DATE"": //timestamp with time zone //
+  }
 }
 
-package "Read Model" #line.dashed {
+package "Read Model (Projections)" #line.dashed {
   entity "**RM_ORDER**" ##[dotted] {
     + ""ID"": //uuid [PK]//
     --
@@ -66,9 +93,9 @@ package "Read Model" #line.dashed {
 }
 
 "**ES_AGGREGATE_SNAPSHOT**" }-- "**ES_AGGREGATE**"
-
 "**ES_EVENT**" }-- "**ES_AGGREGATE**"
-
+"**ES_IDEMPOTENCY_KEY**" }-- "**ES_AGGREGATE**"
+"**ES_EVENT_SUBSCRIPTION_DEAD_LETTER**" }.. "**ES_EVENT_SUBSCRIPTION**"
 "**RM_ORDER_ROUTE**" }-- "**RM_ORDER**"
 
 @enduml

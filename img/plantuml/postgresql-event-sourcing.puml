@@ -1,7 +1,7 @@
 @startuml
 
-scale max 1024 width
-scale max 800 height
+scale max 1200 width
+scale max 900 height
 
 skinparam defaultTextAlignment center
 skinparam componentStyle rectangle
@@ -12,33 +12,39 @@ skinparam database {
   FontColor White
 }
 
-component "REST API" as API
+component "REST API\n(OrdersController)" as API
 
-component "Command Handler" as CommandHandler #lightblue
+component "Idempotency &\nCommand Processor" as CommandHandler #lightblue
 
-component "Scheduled\nEvent Subscription\nProcessor" as ScheduledEventSubscriptionProcessor #lightblue
+component "PostgreSQL Channel\nSubscription Processor\n(LISTEN/NOTIFY)" as SubscriptionProcessor #lightblue
 
-component "Synchronous\nEvent Handler" as SyncEventHandler #lightblue
+component "Batch Processor\n(Retry & DLQ)" as BatchProcessor #lightblue
+
+component "Synchronous\nProjection Updater" as SyncEventHandler #lightblue
 
 component "Asynchronous\nEvent Handler" as AsyncEventHandler #lightblue
 
 component "Projection\nRepository" as Repository #lightgreen
 
-database "Event Store &\nRead Database" as Postgres <<PostgreSQL>>
+database "PostgreSQL\n(Event Store, Outbox,\nProjections & DLQ)" as Postgres <<PostgreSQL>>
 
 queue Kafka #White
 
-API -> CommandHandler: **1.** Execute\lcommand
-CommandHandler --> Postgres: **2.** Read aggregate\l& append events
+queue "Dead Letter Queue\n(ES_EVENT_SUBSCRIPTION_DEAD_LETTER)" as DLQ #lightpink
+
+API -> CommandHandler: **1.** Execute command\l(Idempotency check)
+CommandHandler --> Postgres: **2.** Check/acquire lease,\lread aggregate & append event
 CommandHandler -> SyncEventHandler: **3.** Handle\lnew events
-SyncEventHandler --> Postgres: **4.** Update\lread model
+SyncEventHandler --> Postgres: **4.** Update\lread model (RM_ORDER)
 API .> Repository: **5.** Execute\lquery
 Repository ...> Postgres: **6.** Query\lprojections
-Scheduler -right-> ScheduledEventSubscriptionProcessor: Every second
-ScheduledEventSubscriptionProcessor -up-> Postgres: **7.** Read\lnew events
-ScheduledEventSubscriptionProcessor -> AsyncEventHandler: **8.** Handle\lnew events
-AsyncEventHandler --> Postgres: **9.** Read aggregate
-AsyncEventHandler -right-> Kafka: **10.** Send\lintegration event
-ScheduledEventSubscriptionProcessor --> Postgres: **11.** Update\lcheckpoint
+Postgres -.-> SubscriptionProcessor: **7.** pg_notify\l('es_event')
+SubscriptionProcessor -up-> Postgres: **8.** Batch fetch\lnew events
+SubscriptionProcessor -> BatchProcessor: **9.** Dispatch\levent batch
+BatchProcessor -> AsyncEventHandler: **10.** Invoke\lhandler
+AsyncEventHandler --> Postgres: **11.** Read aggregate
+AsyncEventHandler -right-> Kafka: **12.** Send\lintegration event
+BatchProcessor -.-> DLQ: **13.** Isolate poison pills\lafter max retries
+BatchProcessor --> Postgres: **14.** Advance\lcheckpoint
 
 @enduml

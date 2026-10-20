@@ -13,6 +13,8 @@ Adjusted --> Adjusted : Adjust order price
 Adjusted --> Accepted : Accept order
 Adjusted --> Cancelled : Cancel order
 Accepted --> Completed : Complete order
+Accepted --> Cancelled : Cancel order
 Completed -> [*]
+Cancelled -> [*]
 
 @enduml

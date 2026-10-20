@@ -1,7 +1,7 @@
 @startuml
 
-scale max 1024 width
-scale max 1100 height
+scale max 1400 width
+scale max 1400 height
 
 set separator none
 
@@ -33,6 +33,19 @@ package eventsourcing.postgresql #DDDDDD {
       +readCheckpointAndLockSubscription(String): Optional<EventSubscriptionCheckpoint>
       +updateEventSubscription(String, BigInteger, long): boolean
     }
+
+    class EventSubscriptionDeadLetterRepository {
+      +saveDeadLetter(String, EventWithId, Exception): void
+      +findDeadLetters(Pageable): Page<DeadLetterRecord>
+      +deleteDeadLetterById(long): boolean
+    }
+
+    class IdempotencyKeyRepository {
+      +tryAcquireLease(String, String): LeaseAcquisitionResult
+      +complete(String, UUID, int, String): void
+      +releaseLease(String): void
+      +findByKey(String): Optional<IdempotencyKeyRecord>
+    }
   }
 
   package eventsourcing.postgresql.service {
@@ -45,45 +58,36 @@ package eventsourcing.postgresql #DDDDDD {
       +readAggregate(String, UUID, Integer): Aggregate
     }
 
-    together {
-      class CommandProcessor {
-        -aggregateStore: AggregateStore
-        -commandHandlers: List<CommandHandler>
-        -defaultCommandHandler: DefaultCommandHandler
-        -aggregateChangesHandlers: List<SyncEventHandler>
-        +process(Command): Aggregate
-      }
-
-      class EventSubscriptionProcessor {
-        -subscriptionRepository: EventSubscriptionRepository
-        -eventRepository: EventRepository
-        +processNewEvents(AsyncEventHandler): void
-      }
+    class CommandProcessor {
+      -aggregateStore: AggregateStore
+      -idempotencyService: IdempotencyService
+      -commandHandlers: List<CommandHandler>
+      -aggregateChangesHandlers: List<SyncEventHandler>
+      +process(Command): Aggregate
+      +process(Command, String, String): CommandResult
     }
 
-    together {
-      class ScheduledEventSubscriptionProcessor {
-        -eventHandlers: List<AsyncEventHandler>
-        -eventSubscriptionProcessor: EventSubscriptionProcessor
-        +processNewEvents(): void
-        -processNewEvents(AsyncEventHandler): void
-      }
+    class EventSubscriptionBatchProcessor {
+      -deadLetterRepository: EventSubscriptionDeadLetterRepository
+      +processEvents(List<EventWithId>, AsyncEventHandler): void
+    }
 
-      class PostgresChannelEventSubscriptionProcessor {
-        -eventHandlers: List<AsyncEventHandler>
-        -eventSubscriptionProcessor: EventSubscriptionProcessor
-        -dataSourceProperties: DataSourceProperties
-        -executor: ExecutorService
-        -latch: CountDownLatch
-        -future: Future
-        -connection: PgConnection
-        -{static} newExecutor(): ExecutorService
-        +start(): void
-        -processNewEvents(AsyncEventHandler): void
-        -getPgConnection(): PgConnection
-        -isActive(): boolean
-        +stop(): void
-      }
+    class EventSubscriptionDeadLetterService {
+      -deadLetterRepository: EventSubscriptionDeadLetterRepository
+      +replayDeadLetter(long): boolean
+    }
+
+    class ScheduledEventSubscriptionProcessor {
+      -eventHandlers: List<AsyncEventHandler>
+      -batchProcessor: EventSubscriptionBatchProcessor
+      +processNewEvents(): void
+    }
+
+    class PostgresChannelEventSubscriptionProcessor {
+      -eventHandlers: List<AsyncEventHandler>
+      -batchProcessor: EventSubscriptionBatchProcessor
+      +start(): void
+      +stop(): void
     }
 
     package eventsourcing.postgresql.service.command {
@@ -94,6 +98,13 @@ package eventsourcing.postgresql #DDDDDD {
       }
 
       class DefaultCommandHandler
+
+      class IdempotencyService {
+        -idempotencyKeyRepository: IdempotencyKeyRepository
+        +tryAcquireLease(String, String): Optional<IdempotencyKeyRecord>
+        +complete(String, UUID, int, String): void
+        +releaseLease(String): void
+      }
     }
 
     package eventsourcing.postgresql.service.event {
@@ -124,6 +135,20 @@ package com.example.eventsourcing {
     package com.example.eventsourcing.service.command {
 
       class PlaceOrderCommandHandler
+      class AdjustOrderPriceCommandHandler
+      class AcceptOrderCommandHandler
+      class CompleteOrderCommandHandler
+      class CancelOrderCommandHandler
+    }
+
+    package com.example.eventsourcing.service.projection {
+
+      class OrderProjectionRebuildService {
+        -orderProjectionRepository: OrderProjectionRepository
+        -aggregateStore: AggregateStore
+        +rebuildAllOrders(): void
+        +rebuildOrder(UUID): void
+      }
     }
 
     package com.example.eventsourcing.service.event {
@@ -152,13 +177,13 @@ package com.example.eventsourcing {
     class OrderMapperImpl << Generated >>
   }
 
-  package com.example.eventsourcing.service.controller {
+  package com.example.eventsourcing.controller {
 
     class OrdersController {
       -commandProcessor: CommandProcessor
       -orderProjectionRepository: OrderProjectionRepository
-      +placeOrder(JsonNode): ResponseEntity<JsonNode>
-      +modifyOrder(UUID, JsonNode): ResponseEntity<Object>
+      +placeOrder(PlaceOrderRequest, String): ResponseEntity<OrderDto>
+      +modifyOrder(UUID, ModifyOrderRequest, String): ResponseEntity<OrderDto>
       +getOrders(): ResponseEntity<List<OrderProjection>>
       +getOrder(UUID): ResponseEntity<OrderProjection>
     }
@@ -173,6 +198,10 @@ AsyncEventHandler <|.. OrderIntegrationEventSender
 
 CommandHandler <|.left. DefaultCommandHandler
 CommandHandler <|.. PlaceOrderCommandHandler
+CommandHandler <|.. AdjustOrderPriceCommandHandler
+CommandHandler <|.. AcceptOrderCommandHandler
+CommandHandler <|.. CompleteOrderCommandHandler
+CommandHandler <|.. CancelOrderCommandHandler
 
 OrderMapper <|.left. OrderMapperImpl
 
@@ -182,19 +211,23 @@ OrdersController o-- OrderProjectionRepository
 AggregateStore o-- AggregateRepository
 AggregateStore o-- EventRepository
 
-EventSubscriptionProcessor o-- EventSubscriptionRepository
-EventSubscriptionProcessor o-- EventRepository
-
-ScheduledEventSubscriptionProcessor o-- EventSubscriptionProcessor
-ScheduledEventSubscriptionProcessor o-- AsyncEventHandler
-
-PostgresChannelEventSubscriptionProcessor o-- EventSubscriptionProcessor
-PostgresChannelEventSubscriptionProcessor o-- AsyncEventHandler
+IdempotencyService o-- IdempotencyKeyRepository
 
 CommandProcessor o-- AggregateStore
+CommandProcessor o-- IdempotencyService
 CommandProcessor o-- CommandHandler
-CommandProcessor o-- DefaultCommandHandler
 CommandProcessor o-- SyncEventHandler
+
+EventSubscriptionBatchProcessor o-- EventSubscriptionDeadLetterRepository
+
+ScheduledEventSubscriptionProcessor o-- EventSubscriptionBatchProcessor
+ScheduledEventSubscriptionProcessor o-- AsyncEventHandler
+
+PostgresChannelEventSubscriptionProcessor o-- EventSubscriptionBatchProcessor
+PostgresChannelEventSubscriptionProcessor o-- AsyncEventHandler
+
+OrderProjectionRebuildService o-- OrderProjectionRepository
+OrderProjectionRebuildService o-- AggregateStore
 
 OrderProjectionUpdater o-- OrderProjectionRepository
 OrderProjectionUpdater o-- OrderMapper

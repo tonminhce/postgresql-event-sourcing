@@ -19,6 +19,7 @@ package eventsourcing.postgresql #DDDDDD {
       {abstract} +getAggregateType(): String
       +loadFromHistory(List<Event>): void
       +process(Command): void
+      +markChangesAsCommitted(): void
       #getNextVersion(): int
       #applyChange(Event): void
       -apply(Event): void
@@ -43,6 +44,7 @@ package eventsourcing.postgresql #DDDDDD {
         #aggregateId: UUID
         #version: int
         #createdDate: Instant
+        #metadata: JsonNode
         {abstract} +getEventType(): String
       }
 
@@ -78,6 +80,7 @@ package com.example.eventsourcing {
       -acceptedDate: Instant
       -completedDate: Instant
       -cancelledDate: Instant
+      -cancellationReason: String
     }
 
     enum AggregateType {
@@ -108,6 +111,7 @@ package com.example.eventsourcing {
       }
 
       class CancelOrderCommand {
+        -cancellationReason: String
       }
     }
 
@@ -131,6 +135,7 @@ package com.example.eventsourcing {
       }
 
       class OrderCancelledEvent {
+        -cancellationReason: String
       }
 
       enum EventType {
