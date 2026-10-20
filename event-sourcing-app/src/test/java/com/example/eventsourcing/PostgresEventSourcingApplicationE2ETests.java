@@ -15,6 +15,6 @@ class PostgresEventSourcingApplicationE2ETests {
     @Test
     void orderTestScript() throws Exception {
         var restTemplate = new RestTemplateBuilder().rootUri(ROOT_URI);
-        new OrderTestScript(new TestRestTemplate(restTemplate), KAFKA_BROKERS).execute();
+        new OrderTestScript(new TestRestTemplate(restTemplate), KAFKA_BROKERS, getClass().getSimpleName() + "-consumer").execute();
     }
 }

@@ -21,6 +21,9 @@ abstract class PostgresEventSourcingApplicationTests extends AbstractContainerBa
 
     @Test
     void orderTestScript() throws Exception {
-        new OrderTestScript(restTemplate, KAFKA.getBootstrapServers()).execute();
+        // The Kafka container is shared by all the test classes of this JVM, so every test class
+        // needs its own consumer group. Otherwise the second class to run resumes from the
+        // offsets committed by the first one and does not see the events it has just published.
+        new OrderTestScript(restTemplate, KAFKA.getBootstrapServers(), getClass().getSimpleName() + "-consumer").execute();
     }
 }

@@ -22,13 +22,11 @@ import org.springframework.kafka.test.utils.KafkaTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Spliterator;
-import java.util.Spliterators;
 import java.util.UUID;
-import java.util.stream.StreamSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,6 +43,7 @@ public class OrderTestScript {
 
     private final TestRestTemplate restTemplate;
     private final String kafkaBrokers;
+    private final String consumerGroup;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final BasicJsonTester jsonTester = new BasicJsonTester(getClass());
     
@@ -199,7 +198,7 @@ public class OrderTestScript {
 
         log.info("Print integration events");
         var kafkaConsumer = createKafkaConsumer(KafkaTopicsConfig.TOPIC_ORDER_EVENTS);
-        List<String> kafkaRecordValues = getKafkaRecords(kafkaConsumer, Duration.ofSeconds(20), 23);
+        List<String> kafkaRecordValues = getOrderKafkaRecords(kafkaConsumer, Duration.ofSeconds(20), 23, orderId);
         kafkaConsumer.unsubscribe();
         assertThat(kafkaRecordValues)
                 .hasSizeGreaterThanOrEqualTo(23);
@@ -296,7 +295,7 @@ public class OrderTestScript {
     private Consumer<String, String> createKafkaConsumer(String... topicsToConsume) {
         var consumerProps = KafkaTestUtils.consumerProps(
                 kafkaBrokers,
-                this.getClass().getSimpleName() + "-consumer",
+                consumerGroup,
                 "true"
         );
         var cf = new DefaultKafkaConsumerFactory<>(
@@ -309,13 +308,34 @@ public class OrderTestScript {
         return consumer;
     }
 
-    private List<String> getKafkaRecords(Consumer<String, String> consumer,
-                                         Duration timeout,
-                                         int minRecords) {
-        ConsumerRecords<String, String> records = KafkaTestUtils.getRecords(consumer, timeout, minRecords);
-        return StreamSupport.stream(Spliterators.spliteratorUnknownSize(records.iterator(), Spliterator.ORDERED), false)
+    private List<String> getOrderKafkaRecords(Consumer<String, String> consumer,
+                                               Duration timeout,
+                                               int minRecords,
+                                               UUID orderId) {
+        // The Kafka topic is shared by all the test classes of this JVM, so the records of the
+        // other orders have to be filtered out before asserting on them.
+        List<ConsumerRecord<String, String>> records = new ArrayList<>();
+        long deadline = System.currentTimeMillis() + timeout.toMillis();
+        while (System.currentTimeMillis() < deadline && records.size() < minRecords) {
+            ConsumerRecords<String, String> polledRecords = consumer.poll(Duration.ofMillis(100));
+            for (ConsumerRecord<String, String> record : polledRecords) {
+                if (isRecordOfOrder(record.value(), orderId)) {
+                    records.add(record);
+                }
+            }
+        }
+        return records.stream()
                 .sorted(Comparator.comparingLong(ConsumerRecord::timestamp))
                 .map(ConsumerRecord::value)
                 .toList();
+    }
+
+    private boolean isRecordOfOrder(String recordValue, UUID orderId) {
+        try {
+            return orderId.toString().equals(objectMapper.readTree(recordValue).path("order_id").asText());
+        } catch (JsonProcessingException e) {
+            log.warn("Cannot read the integration event {}", recordValue, e);
+            return false;
+        }
     }
 }
