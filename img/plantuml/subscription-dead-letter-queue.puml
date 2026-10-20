@@ -1,0 +1,46 @@
+@startuml
+
+scale max 1024 width
+scale max 800 height
+
+skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
+
+skinparam database {
+  BorderColor Grey
+}
+
+component "PostgreSQL Channel\nSubscription Processor" as subProc #lightblue
+component "Event Subscription\nBatch Processor" as batchProc #lightblue
+component "Async Event Handler\n(OrderIntegrationEventSender)" as handler #lightblue
+queue "Apache Kafka\nMessage Broker" as kafka #White
+
+database "PostgreSQL Database" {
+  component eventTbl [
+  **ES_EVENT** Table
+  |= ""ID"" |= ""TRANSACTION_ID"" |= ""EVENT_TYPE"" |
+  | 101 | 855 | OrderPlacedEvent |
+  ]
+
+  component subTbl [
+  **ES_EVENT_SUBSCRIPTION** Table
+  |= ""SUBSCRIPTION_NAME"" |= ""LAST_TRANSACTION_ID"" |= ""LAST_EVENT_ID"" |
+  | ""OrderIntegrationSender"" | 855 | 101 |
+  ]
+
+  component dlqTbl [
+  **ES_EVENT_SUBSCRIPTION_DEAD_LETTER** Table
+  |= ""ID"" |= ""EVENT_ID"" |= ""EXCEPTION_CLASS"" |= ""ERROR_MESSAGE"" |
+  | 1 | 101 | ""JsonProcessingException"" | ""Corrupted payload"" |
+  ]
+}
+
+subProc --> eventTbl: **1.** Read new committed events
+subProc -> batchProc: **2.** Dispatch event batch
+batchProc -> handler: **3.** Invoke handler\n(Exponential backoff retry 1s, 2s, 4s)
+handler -right-> kafka: **4a.** Publish message\l(Success)
+handler -.-> batchProc: **4b.** Persistent failure\l(Poison pill)
+batchProc --> dlqTbl: **5.** Isolate failing event\lto DLQ
+batchProc --> subTbl: **6.** Advance checkpoint\l(Stream continues unblocked!)
+
+@enduml

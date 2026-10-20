@@ -1,0 +1,58 @@
+@startuml
+
+scale max 1024 width
+scale max 800 height
+
+skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
+
+skinparam database {
+  BorderColor Grey
+}
+
+actor "Client" as client
+component "Orders\nController" as controller #lightblue
+component "Command\nProcessor" as processor #lightblue
+
+database "PostgreSQL Database" {
+
+  rectangle "Phase 1: Lease Autonomous Transaction (REQUIRES_NEW)" #line.dashed {
+    component idempTblStarted [
+    **ES_IDEMPOTENCY_KEY** Table
+    |= ""KEY"" |= ""STATUS"" |= ""REQUEST_HASH"" |
+    | ""uuid-123"" | <back:lightyellow>**STARTED**</back> | ""sha256-a1b2c3..."" |
+    ]
+  }
+
+  rectangle "Phase 2: Command & Domain Transaction" #line.dashed {
+    component aggregateTbl [
+    **ES_AGGREGATE** Table
+    |= ""ID"" |= ""VERSION"" |
+    | ""order-1"" | 1 |
+    ]
+
+    component eventTbl [
+    **ES_EVENT** Table
+    |= ""ID"" |= ""TRANSACTION_ID"" |= ""EVENT_TYPE"" |
+    | 101 | 855 | OrderPlacedEvent |
+    ]
+  }
+
+  rectangle "Phase 3: Completion Autonomous Transaction (REQUIRES_NEW)" #line.dashed {
+    component idempTblCompleted [
+    **ES_IDEMPOTENCY_KEY** Table
+    |= ""KEY"" |= ""STATUS"" |= ""RESPONSE_BODY"" |
+    | ""uuid-123"" | <back:lightgreen>**COMPLETED**</back> | ""{\"orderId\":\"...\"}"" |
+    ]
+  }
+}
+
+client -> controller: **1.** POST /orders\lIdempotency-Key: ""uuid-123""
+controller -> processor: **2.** process(cmd, key, hash)
+processor --> idempTblStarted: **3.** tryAcquireLease()\lINSERT (Status = STARTED)
+processor --> aggregateTbl: **4.** UPDATE version (OCC)
+processor --> eventTbl: **5.** INSERT event
+processor --> idempTblCompleted: **6.** complete()\lUPDATE Status = COMPLETED
+controller --> client: **7.** 201 Created (OrderDto)
+
+@enduml

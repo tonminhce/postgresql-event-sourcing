@@ -1,0 +1,90 @@
+@startuml
+
+scale max 1024 width
+scale max 1200 height
+
+skinparam sequence {
+  LifeLineBorderColor Grey
+}
+
+actor "Client" as client
+participant "OrdersController" as controller
+participant "CommandProcessor" as processor
+participant "IdempotencyService" as idemp
+database "PostgreSQL\nES_IDEMPOTENCY_KEY" as idempDb
+database "PostgreSQL\nES_AGGREGATE &\nES_EVENT" as eventStore
+
+== 1. Initial Request (New Idempotency Key) ==
+client -> controller: POST /orders\nIdempotency-Key: ""uuid-123""
+activate controller
+controller -> processor: process(cmd, "uuid-123", hash)
+activate processor
+processor -> idemp: tryAcquireLease("uuid-123", hash)
+activate idemp
+idemp -> idempDb: ""INSERT INTO ES_IDEMPOTENCY_KEY""\n""(KEY, STATUS, REQUEST_HASH)""\n""VALUES ('uuid-123', 'STARTED', hash)""\n//(Propagation.REQUIRES_NEW)//
+idempDb --> idemp: Lease acquired (STARTED)
+idemp --> processor: Optional.empty() [New Lease]
+deactivate idemp
+
+processor -> eventStore: ""UPDATE ES_AGGREGATE SET VERSION = 1""\n""INSERT INTO ES_EVENT (TRANSACTION_ID, ...)""
+eventStore --> processor: Events committed
+processor -> idemp: complete("uuid-123", orderId, 201, json)
+activate idemp
+idemp -> idempDb: ""UPDATE ES_IDEMPOTENCY_KEY""\n""SET STATUS = 'COMPLETED', RESPONSE_BODY = json""\n""WHERE KEY = 'uuid-123'""\n//(Propagation.REQUIRES_NEW)//
+idempDb --> idemp: Status committed
+idemp --> processor: Done
+deactivate idemp
+processor --> controller: OrderAggregate
+controller --> client: HTTP 201 Created (OrderDto)
+deactivate processor
+deactivate controller
+
+== 2. Duplicate Request / Network Retry (Same Payload) ==
+client -> controller: POST /orders\nIdempotency-Key: ""uuid-123""
+activate controller
+controller -> processor: process(cmd, "uuid-123", hash)
+activate processor
+processor -> idemp: tryAcquireLease("uuid-123", hash)
+activate idemp
+idemp -> idempDb: ""SELECT * FROM ES_IDEMPOTENCY_KEY WHERE KEY = 'uuid-123'""
+idempDb --> idemp: Row: STATUS = 'COMPLETED', HASH = hash, BODY = json
+idemp --> processor: Cached Record (Status = COMPLETED)
+deactivate idemp
+processor --> controller: Cached Response
+controller --> client: HTTP 201 Created (Cached OrderDto)\n<back:lightgreen>**Idempotent-Replayed: true**</back>
+deactivate processor
+deactivate controller
+
+== 3. Concurrent Request In-Flight (Status = STARTED) ==
+client -> controller: POST /orders (Parallel Thread)\nIdempotency-Key: ""uuid-123""
+activate controller
+controller -> processor: process(cmd, "uuid-123", hash)
+activate processor
+processor -> idemp: tryAcquireLease("uuid-123", hash)
+activate idemp
+idemp -> idempDb: ""SELECT * FROM ES_IDEMPOTENCY_KEY WHERE KEY = 'uuid-123'""
+idempDb --> idemp: Row: STATUS = 'STARTED'
+idemp --> processor: throws IdempotencyInProgressException
+deactivate idemp
+processor --> controller: Exception
+controller --> client: <back:lightpink>**HTTP 409 Conflict**</back>\n<back:lightpink>**Retry-After: 1**</back>
+deactivate processor
+deactivate controller
+
+== 4. Payload Tampering / Hash Mismatch ==
+client -> controller: POST /orders (Modified Price)\nIdempotency-Key: ""uuid-123""
+activate controller
+controller -> processor: process(cmd, "uuid-123", differentHash)
+activate processor
+processor -> idemp: tryAcquireLease("uuid-123", differentHash)
+activate idemp
+idemp -> idempDb: ""SELECT * FROM ES_IDEMPOTENCY_KEY WHERE KEY = 'uuid-123'""
+idempDb --> idemp: Row: HASH != differentHash
+idemp --> processor: throws IdempotencyPayloadMismatchException
+deactivate idemp
+processor --> controller: Exception
+controller --> client: <back:lightpink>**HTTP 422 Unprocessable Entity**</back>\n{ "error": "Idempotency-Key reused with different payload",\n  "code": "IDEMPOTENCY_KEY_MISMATCH" }
+deactivate processor
+deactivate controller
+
+@enduml

@@ -593,6 +593,10 @@ In distributed systems and microservices, client retries or network blips can ca
      - **Success**: Upon successful domain processing and event commit, the lease transitions to `COMPLETED` along with the HTTP status and serialized response body.
      - **Failure**: If an unhandled exception or invariant violation occurs, the lease is immediately released (`releaseLease`), allowing the client to fix parameters and retry with the same key.
 
+![Command idempotency transactional flow](img/command-idempotency.svg)
+
+![Command idempotency sequence](img/command-idempotency-sequence.svg)
+
 ```mermaid
 flowchart TD
     Start["Client sends Request + Idempotency-Key"] --> HasKey{"Has Idempotency-Key?"}
@@ -636,6 +640,8 @@ Asynchronous event handlers (such as integration publishers or downstream consum
 * **DLQ Isolation**: If max retries are exceeded, the event, exception class, error message, stack trace, and timestamp are inserted into `ES_EVENT_SUBSCRIPTION_DEAD_LETTER` (Flyway migration V4 `V4__subscription_dlq.sql`).
 * **Stream Continuity**: The subscription checkpoint is safely advanced, ensuring healthy events continue streaming without system-wide deadlocks.
 * **Day-2 Management**: [`EventSubscriptionDeadLetterService`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/EventSubscriptionDeadLetterService.java) provides operations to inspect DLQ records (`GET /admin/subscriptions/dlq`), replay specific entries (`POST /admin/subscriptions/dlq/{id}/replay`), or purge dead records.
+
+![Dead letter queue pattern](img/subscription-dead-letter-queue.svg)
 
 #### <a id="4-10-4"></a>Zero-downtime projection rebuilding
 
