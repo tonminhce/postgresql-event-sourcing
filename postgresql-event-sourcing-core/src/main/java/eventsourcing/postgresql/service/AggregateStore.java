@@ -64,6 +64,7 @@ public class AggregateStore {
             newEvents.add(newEvent);
         }
         createAggregateSnapshot(snapshotting, aggregate);
+        aggregate.markChangesAsCommitted();
         return newEvents;
     }
 

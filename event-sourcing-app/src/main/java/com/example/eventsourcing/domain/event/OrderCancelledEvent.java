@@ -9,6 +9,7 @@ import lombok.ToString;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Getter
@@ -21,13 +22,18 @@ public final class OrderCancelledEvent extends Event {
     @Builder
     public OrderCancelledEvent(@JsonProperty("aggregateId") UUID aggregateId,
                                @JsonProperty("version") int version,
+                               @JsonProperty("createdDate") OffsetDateTime createdDate,
                                @JsonProperty("reason") String reason) {
-        super(aggregateId, version);
+        super(aggregateId, version, createdDate);
         this.reason = reason;
     }
 
+    public OrderCancelledEvent(UUID aggregateId, int version, String reason) {
+        this(aggregateId, version, null, reason);
+    }
+
     public OrderCancelledEvent(UUID aggregateId, int version) {
-        this(aggregateId, version, null);
+        this(aggregateId, version, null, null);
     }
 
     @Nonnull

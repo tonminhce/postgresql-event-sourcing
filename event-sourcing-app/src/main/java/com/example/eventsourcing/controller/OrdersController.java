@@ -5,17 +5,17 @@ import com.example.eventsourcing.domain.command.AdjustOrderPriceCommand;
 import com.example.eventsourcing.domain.command.CancelOrderCommand;
 import com.example.eventsourcing.domain.command.CompleteOrderCommand;
 import com.example.eventsourcing.domain.command.PlaceOrderCommand;
-import com.example.eventsourcing.dto.OrderStatus;
-import com.example.eventsourcing.dto.WaypointDto;
+import com.example.eventsourcing.dto.ModifyOrderRequest;
+import com.example.eventsourcing.dto.PlaceOrderRequest;
 import com.example.eventsourcing.projection.OrderProjection;
 import com.example.eventsourcing.repository.OrderProjectionRepository;
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import eventsourcing.postgresql.domain.command.Command;
-import eventsourcing.postgresql.domain.command.IdempotencyKeyRecord;
+import eventsourcing.postgresql.domain.command.CommandExecutionResult;
 import eventsourcing.postgresql.service.CommandProcessor;
-import eventsourcing.postgresql.service.command.IdempotencyService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
@@ -28,14 +28,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.springframework.http.HttpStatus.CONFLICT;
 
 @RestController
 @RequestMapping("/orders")
@@ -45,63 +41,40 @@ public class OrdersController {
     private final ObjectMapper objectMapper;
     private final CommandProcessor commandProcessor;
     private final OrderProjectionRepository orderProjectionRepository;
-    private final IdempotencyService idempotencyService;
 
     @PostMapping
     public ResponseEntity<JsonNode> placeOrder(
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
-            @RequestBody JsonNode request) throws IOException {
-
-        if (request == null || !request.hasNonNull("riderId") || !request.hasNonNull("price")) {
-            throw new IllegalArgumentException("Fields 'riderId' and 'price' are required");
-        }
-
-        var existingOrder = idempotencyService.get(idempotencyKey);
-        if (existingOrder.isPresent()) {
-            return ResponseEntity.status(existingOrder.get().statusCode())
-                    .body(objectMapper.readTree(existingOrder.get().responseBody()));
-        }
+            @Valid @RequestBody PlaceOrderRequest request) throws JsonProcessingException {
 
         UUID deterministicOrderId = toDeterministicOrderId(idempotencyKey);
-        List<WaypointDto> route = parseRoute(request);
 
-        var order = commandProcessor.process(new PlaceOrderCommand(
-                deterministicOrderId,
-                UUID.fromString(request.get("riderId").asText()),
-                new BigDecimal(request.get("price").asText()),
-                route
-        ));
+        CommandExecutionResult result = commandProcessor.process(
+                new PlaceOrderCommand(
+                        deterministicOrderId,
+                        request.riderId(),
+                        request.price(),
+                        request.route()
+                ),
+                idempotencyKey,
+                agg -> "{\"orderId\":\"" + agg.getAggregateId() + "\"}",
+                200
+        );
 
-        JsonNode responseBody = objectMapper.createObjectNode()
-                .put("orderId", order.getAggregateId().toString());
-
-        recordIdempotency(idempotencyKey, "PlaceOrderCommand", order.getAggregateId(),
-                objectMapper.writeValueAsString(responseBody), 200);
-
-        return ResponseEntity.ok(responseBody);
+        return ResponseEntity.status(result.statusCode())
+                .body(objectMapper.readTree(result.responseBody()));
     }
 
     @PutMapping("/{orderId}")
-    public ResponseEntity<Object> modifyOrder(
+    public ResponseEntity<Void> modifyOrder(
             @PathVariable UUID orderId,
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
-            @RequestBody JsonNode request) {
-
-        var existing = idempotencyService.get(idempotencyKey);
-        if (existing.isPresent()) {
-            if (!existing.get().aggregateId().equals(orderId)) {
-                return ResponseEntity.status(CONFLICT)
-                        .body(objectMapper.createObjectNode().put("error", "Idempotency-Key already used for a different order"));
-            }
-            return ResponseEntity.status(existing.get().statusCode()).build();
-        }
+            @Valid @RequestBody ModifyOrderRequest request) {
 
         Command command = toModifyCommand(orderId, request);
-        commandProcessor.process(command);
+        CommandExecutionResult result = commandProcessor.process(command, idempotencyKey, agg -> "{}", 200);
 
-        recordIdempotency(idempotencyKey, command.getClass().getSimpleName(), orderId, "{}", 200);
-
-        return ResponseEntity.ok().build();
+        return ResponseEntity.status(result.statusCode()).build();
     }
 
     @GetMapping
@@ -117,63 +90,33 @@ public class OrdersController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    private Command toModifyCommand(UUID orderId, JsonNode request) {
-        if (request == null || !request.hasNonNull("status")) {
+    private Command toModifyCommand(UUID orderId, ModifyOrderRequest request) {
+        if (request == null || request.status() == null) {
             throw new IllegalArgumentException("Field 'status' is required");
         }
 
-        OrderStatus status;
-        try {
-            status = OrderStatus.valueOf(request.get("status").asText());
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid status value: " + request.get("status").asText());
-        }
-
-        return switch (status) {
+        return switch (request.status()) {
             case ADJUSTED -> {
-                if (!request.hasNonNull("price")) {
+                if (request.price() == null) {
                     throw new IllegalArgumentException("Field 'price' is required for ADJUSTED status");
                 }
-                yield new AdjustOrderPriceCommand(orderId, new BigDecimal(request.get("price").asText()));
+                yield new AdjustOrderPriceCommand(orderId, request.price());
             }
             case ACCEPTED -> {
-                if (!request.hasNonNull("driverId")) {
+                if (request.driverId() == null) {
                     throw new IllegalArgumentException("Field 'driverId' is required for ACCEPTED status");
                 }
-                yield new AcceptOrderCommand(orderId, UUID.fromString(request.get("driverId").asText()));
+                yield new AcceptOrderCommand(orderId, request.driverId());
             }
             case COMPLETED -> new CompleteOrderCommand(orderId);
-            case CANCELLED -> {
-                String reason = request.has("reason") ? request.get("reason").asText() : null;
-                yield new CancelOrderCommand(orderId, reason);
-            }
+            case CANCELLED -> new CancelOrderCommand(orderId, request.reason());
             case PLACED -> throw new IllegalArgumentException("Cannot transition existing order to PLACED status");
         };
-    }
-
-    private List<WaypointDto> parseRoute(JsonNode request) throws IOException {
-        if (!request.hasNonNull("route")) {
-            return List.of();
-        }
-        return objectMapper.readValue(objectMapper.treeAsTokens(request.get("route")), new TypeReference<>() {});
     }
 
     private static UUID toDeterministicOrderId(String idempotencyKey) {
         return StringUtils.hasText(idempotencyKey)
                 ? UUID.nameUUIDFromBytes(idempotencyKey.getBytes(UTF_8))
                 : null;
-    }
-
-    private void recordIdempotency(String key, String commandType, UUID aggregateId, String responseBody, int statusCode) {
-        if (StringUtils.hasText(key)) {
-            idempotencyService.record(new IdempotencyKeyRecord(
-                    key,
-                    commandType,
-                    aggregateId,
-                    responseBody,
-                    statusCode,
-                    OffsetDateTime.now()
-            ));
-        }
     }
 }

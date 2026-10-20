@@ -52,6 +52,11 @@ public abstract class Aggregate {
         });
     }
 
+    public void markChangesAsCommitted() {
+        this.changes.clear();
+        this.baseVersion = this.version;
+    }
+
     protected int getNextVersion() {
         return version + 1;
     }

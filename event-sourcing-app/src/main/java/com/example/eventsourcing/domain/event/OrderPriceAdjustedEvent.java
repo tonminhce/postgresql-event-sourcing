@@ -1,6 +1,7 @@
 package com.example.eventsourcing.domain.event;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import eventsourcing.postgresql.domain.event.Event;
 import jakarta.annotation.Nonnull;
 import lombok.Builder;
@@ -8,6 +9,7 @@ import lombok.Getter;
 import lombok.ToString;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Getter
@@ -18,11 +20,18 @@ public final class OrderPriceAdjustedEvent extends Event {
 
     @JsonCreator
     @Builder
+    public OrderPriceAdjustedEvent(@JsonProperty("aggregateId") UUID aggregateId,
+                                   @JsonProperty("version") int version,
+                                   @JsonProperty("createdDate") OffsetDateTime createdDate,
+                                   @JsonProperty("newPrice") BigDecimal newPrice) {
+        super(aggregateId, version, createdDate);
+        this.newPrice = newPrice;
+    }
+
     public OrderPriceAdjustedEvent(UUID aggregateId,
                                    int version,
                                    BigDecimal newPrice) {
-        super(aggregateId, version);
-        this.newPrice = newPrice;
+        this(aggregateId, version, null, newPrice);
     }
 
     @Nonnull

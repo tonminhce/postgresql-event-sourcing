@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.UUID;
@@ -24,6 +25,7 @@ public class OrderProjectionRebuildService {
     private final AggregateStore aggregateStore;
     private final AggregateRepository aggregateRepository;
     private final OrderMapper orderMapper;
+    private final TransactionTemplate transactionTemplate;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -38,23 +40,29 @@ public class OrderProjectionRebuildService {
         return merged;
     }
 
-    @Transactional
     public int rebuildAllOrders() {
         log.info("Starting complete rebuild of Order projections...");
-        List<UUID> orderIds = aggregateRepository.findAggregateIdsByType(AggregateType.ORDER.name());
+        List<UUID> orderIds = transactionTemplate.execute(status ->
+                aggregateRepository.findAggregateIdsByType(AggregateType.ORDER.name()));
+        if (orderIds == null || orderIds.isEmpty()) {
+            log.info("No orders found to rebuild.");
+            return 0;
+        }
+
         int batchSize = 50;
-        for (int i = 0; i < orderIds.size(); i++) {
-            UUID orderId = orderIds.get(i);
-            OrderAggregate aggregate = (OrderAggregate) aggregateStore.readAggregate(AggregateType.ORDER.name(), orderId);
-            OrderProjection projection = orderMapper.toProjection(aggregate);
-            entityManager.merge(projection);
-            if ((i + 1) % batchSize == 0) {
+        for (int i = 0; i < orderIds.size(); i += batchSize) {
+            List<UUID> batch = orderIds.subList(i, Math.min(i + batchSize, orderIds.size()));
+            transactionTemplate.executeWithoutResult(status -> {
+                for (UUID orderId : batch) {
+                    OrderAggregate aggregate = (OrderAggregate) aggregateStore.readAggregate(AggregateType.ORDER.name(), orderId);
+                    OrderProjection projection = orderMapper.toProjection(aggregate);
+                    entityManager.merge(projection);
+                }
                 entityManager.flush();
                 entityManager.clear();
-            }
+            });
         }
-        entityManager.flush();
-        entityManager.clear();
+
         log.info("Successfully rebuilt {} Order projection(s).", orderIds.size());
         return orderIds.size();
     }

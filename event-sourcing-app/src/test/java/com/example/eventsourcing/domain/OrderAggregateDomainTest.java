@@ -7,12 +7,22 @@ import com.example.eventsourcing.domain.command.CompleteOrderCommand;
 import com.example.eventsourcing.domain.command.PlaceOrderCommand;
 import com.example.eventsourcing.dto.OrderStatus;
 import com.example.eventsourcing.dto.WaypointDto;
+import com.example.eventsourcing.domain.event.OrderAcceptedEvent;
+import com.example.eventsourcing.domain.event.OrderCancelledEvent;
+import com.example.eventsourcing.domain.event.OrderCompletedEvent;
+import com.example.eventsourcing.domain.event.OrderPlacedEvent;
+import com.example.eventsourcing.domain.event.OrderPriceAdjustedEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import eventsourcing.postgresql.error.AggregateStateException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -329,6 +339,68 @@ class OrderAggregateDomainTest {
             assertThatThrownBy(() -> aggregate.process(new CancelOrderCommand(orderId, "Too late")))
                     .isInstanceOf(AggregateStateException.class)
                     .hasMessageContaining("can't be cancelled");
+        }
+    }
+
+    @Nested
+    @DisplayName("Historical Event Hydration & Timestamp Tests")
+    class HistoricalEventHydrationTests {
+
+        private final ObjectMapper objectMapper = new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+        @Test
+        @DisplayName("Should preserve historical timestamps when loading aggregate from events")
+        void shouldPreserveHistoricalTimestampsOnHydration() {
+            OffsetDateTime pastPlacedDate = OffsetDateTime.of(2025, 1, 15, 10, 30, 0, 0, ZoneOffset.UTC);
+            OffsetDateTime pastAcceptedDate = pastPlacedDate.plusMinutes(5);
+
+            var event1 = OrderPlacedEvent.builder()
+                    .aggregateId(orderId)
+                    .version(1)
+                    .createdDate(pastPlacedDate)
+                    .riderId(riderId)
+                    .price(new BigDecimal("100.00"))
+                    .route(sampleRoute())
+                    .build();
+
+            var event2 = OrderAcceptedEvent.builder()
+                    .aggregateId(orderId)
+                    .version(2)
+                    .createdDate(pastAcceptedDate)
+                    .driverId(driverId)
+                    .build();
+
+            var aggregate = new OrderAggregate(orderId, 0);
+            aggregate.loadFromHistory(List.of(event1, event2));
+
+            assertThat(aggregate.getVersion()).isEqualTo(2);
+            assertThat(aggregate.getStatus()).isEqualTo(OrderStatus.ACCEPTED);
+            assertThat(aggregate.getPlacedDate()).isEqualTo(pastPlacedDate);
+            assertThat(aggregate.getAcceptedDate()).isEqualTo(pastAcceptedDate);
+        }
+
+        @Test
+        @DisplayName("Should preserve createdDate across Jackson JSON serialization and deserialization")
+        void shouldPreserveCreatedDateAcrossJsonSerialization() throws Exception {
+            OffsetDateTime historicalDate = OffsetDateTime.of(2024, 6, 1, 12, 0, 0, 0, ZoneOffset.UTC);
+
+            var originalEvent = OrderPlacedEvent.builder()
+                    .aggregateId(orderId)
+                    .version(1)
+                    .createdDate(historicalDate)
+                    .riderId(riderId)
+                    .price(new BigDecimal("250.00"))
+                    .route(sampleRoute())
+                    .build();
+
+            String json = objectMapper.writeValueAsString(originalEvent);
+            OrderPlacedEvent deserialized = objectMapper.readValue(json, OrderPlacedEvent.class);
+
+            assertThat(deserialized.getCreatedDate()).isEqualTo(historicalDate);
+            assertThat(deserialized.getAggregateId()).isEqualTo(orderId);
+            assertThat(deserialized.getPrice()).isEqualByComparingTo("250.00");
         }
     }
 }
