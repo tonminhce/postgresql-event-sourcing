@@ -133,7 +133,7 @@ class CommandIdempotencyIntegrationTests extends AbstractContainerBaseTest {
         );
         assertThat(response2.getStatusCode().value()).isEqualTo(422);
         JsonNode json = objectMapper.readTree(response2.getBody());
-        assertThat(json.get("error").asText()).isEqualTo("Idempotency-Key reused with different payload");
+        assertThat(json.get("detail").asText()).isEqualTo("Idempotency-Key reused with different payload");
         assertThat(json.get("code").asText()).isEqualTo("IDEMPOTENCY_KEY_MISMATCH");
     }
 
@@ -169,7 +169,7 @@ class CommandIdempotencyIntegrationTests extends AbstractContainerBaseTest {
         assertThat(response.getStatusCode().value()).isEqualTo(409);
         assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("1");
         JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.get("error").asText()).contains("Request is currently being processed");
+        assertThat(json.get("detail").asText()).contains("Request is currently being processed");
     }
 
     @Test
@@ -290,5 +290,83 @@ class CommandIdempotencyIntegrationTests extends AbstractContainerBaseTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Idempotency-Key", idempotencyKey);
         return headers;
+    }
+
+    @Test
+    void shouldReturn201WithLocationHeaderWhenOrderIsPlaced() throws Exception {
+        HttpHeaders headers = jsonHeaders(UUID.randomUUID().toString());
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/orders",
+                HttpMethod.POST,
+                new HttpEntity<>("""
+                        {
+                          "riderId":"7f9217e7-c2ed-4919-9e7f-9ca5c2d9dd83",
+                          "price":"100.00",
+                          "route":[]
+                        }
+                        """, headers),
+                String.class
+        );
+
+        assertThat(response.getStatusCode().value()).isEqualTo(201);
+        String orderId = objectMapper.readTree(response.getBody()).get("orderId").asText();
+        assertThat(response.getHeaders().getFirst(HttpHeaders.LOCATION)).isEqualTo("/orders/" + orderId);
+    }
+
+    @Test
+    void shouldReturnProblemDetailsWhenOrderIsNotFound() throws Exception {
+        ResponseEntity<String> response = restTemplate.getForEntity(
+                "/orders/" + UUID.randomUUID(),
+                String.class
+        );
+
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
+        JsonNode json = objectMapper.readTree(response.getBody());
+        assertThat(json.get("status").asInt()).isEqualTo(404);
+        assertThat(json.get("title").asText()).isEqualTo("Resource not found");
+        assertThat(json.get("code").asText()).isEqualTo("RESOURCE_NOT_FOUND");
+        assertThat(json.get("detail").asText()).contains("Order not found for ID");
+        assertThat(json.get("instance").asText()).startsWith("/orders/");
+    }
+
+    @Test
+    void shouldReturnUpdatedOrderWhenOrderIsModified() throws Exception {
+        HttpHeaders placeHeaders = jsonHeaders(UUID.randomUUID().toString());
+        HttpHeaders headers = jsonHeaders(UUID.randomUUID().toString());
+
+        ResponseEntity<String> placeResponse = restTemplate.exchange(
+                "/orders",
+                HttpMethod.POST,
+                new HttpEntity<>("""
+                        {
+                          "riderId":"7f9217e7-c2ed-4919-9e7f-9ca5c2d9dd83",
+                          "price":"100.00",
+                          "route":[]
+                        }
+                        """, placeHeaders),
+                String.class
+        );
+        assertThat(placeResponse.getStatusCode().value()).isEqualTo(201);
+        String orderId = objectMapper.readTree(placeResponse.getBody()).get("orderId").asText();
+
+        ResponseEntity<String> modifyResponse = restTemplate.exchange(
+                "/orders/" + orderId,
+                HttpMethod.PUT,
+                new HttpEntity<>("""
+                        {
+                          "status":"ACCEPTED",
+                          "driverId":"2c068a1a-9263-433f-a70b-067d51b98378"
+                        }
+                        """, headers),
+                String.class
+        );
+
+        assertThat(modifyResponse.getStatusCode().value()).isEqualTo(200);
+        JsonNode order = objectMapper.readTree(modifyResponse.getBody());
+        assertThat(order.get("id").asText()).isEqualTo(orderId);
+        assertThat(order.get("status").asText()).isEqualTo("ACCEPTED");
+        assertThat(order.get("version").asInt()).isEqualTo(2);
     }
 }

@@ -21,6 +21,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.CONFLICT;
+import static org.springframework.http.HttpStatus.UNPROCESSABLE_CONTENT;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -77,10 +78,10 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 String.class
         );
 
-        assertThat(response.getStatusCode()).isEqualTo(BAD_REQUEST);
+        assertThat(response.getStatusCode()).isEqualTo(UNPROCESSABLE_CONTENT);
         JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("error")).isTrue();
-        assertThat(json.get("error").asText()).contains("Price must be strictly positive");
+        assertThat(json.get("code").asText()).isEqualTo("VALIDATION_FAILED");
+        assertThat(json.get("detail").asText()).contains("Price must be strictly positive");
     }
 
     @Test
@@ -121,9 +122,9 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 String.class
         );
 
-        assertThat(acceptResponse.getStatusCode()).isEqualTo(BAD_REQUEST);
+        assertThat(acceptResponse.getStatusCode()).isEqualTo(UNPROCESSABLE_CONTENT);
         JsonNode json = objectMapper.readTree(acceptResponse.getBody());
-        assertThat(json.get("error").asText()).isEqualTo("Driver cannot accept their own ride request");
+        assertThat(json.get("detail").asText()).isEqualTo("Driver cannot accept their own ride request");
     }
 
     @Test
@@ -141,7 +142,7 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 String.class
         );
         assertThat(noStatusResponse.getStatusCode()).isEqualTo(BAD_REQUEST);
-        assertThat(objectMapper.readTree(noStatusResponse.getBody()).get("error").asText())
+        assertThat(objectMapper.readTree(noStatusResponse.getBody()).get("detail").asText())
                 .isEqualTo("Field 'status' is required");
 
         // Missing price on ADJUSTED
@@ -151,8 +152,8 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 new HttpEntity<>("{\"status\":\"ADJUSTED\"}", headers),
                 String.class
         );
-        assertThat(noPriceResponse.getStatusCode()).isEqualTo(BAD_REQUEST);
-        assertThat(objectMapper.readTree(noPriceResponse.getBody()).get("error").asText())
+        assertThat(noPriceResponse.getStatusCode()).isEqualTo(UNPROCESSABLE_CONTENT);
+        assertThat(objectMapper.readTree(noPriceResponse.getBody()).get("detail").asText())
                 .isEqualTo("Field 'price' is required for ADJUSTED status");
 
         // Missing driverId on ACCEPTED
@@ -162,8 +163,8 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 new HttpEntity<>("{\"status\":\"ACCEPTED\"}", headers),
                 String.class
         );
-        assertThat(noDriverResponse.getStatusCode()).isEqualTo(BAD_REQUEST);
-        assertThat(objectMapper.readTree(noDriverResponse.getBody()).get("error").asText())
+        assertThat(noDriverResponse.getStatusCode()).isEqualTo(UNPROCESSABLE_CONTENT);
+        assertThat(objectMapper.readTree(noDriverResponse.getBody()).get("detail").asText())
                 .isEqualTo("Field 'driverId' is required for ACCEPTED status");
     }
 
@@ -204,7 +205,7 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
                 String.class
         );
         assertThat(res2.getStatusCode()).isEqualTo(CONFLICT);
-        assertThat(objectMapper.readTree(res2.getBody()).get("error").asText())
+        assertThat(objectMapper.readTree(res2.getBody()).get("detail").asText())
                 .isEqualTo("Idempotency-Key already used for a different order");
     }
 

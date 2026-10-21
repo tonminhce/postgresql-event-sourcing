@@ -272,7 +272,7 @@ public class OrderTestScript {
 
         String jsonString = response.getBody();
         assertThat(jsonTester.from(jsonString))
-                .extractingJsonPathStringValue("@.error")
+                .extractingJsonPathStringValue("@.detail")
                 .isEqualTo(error);
     }
 

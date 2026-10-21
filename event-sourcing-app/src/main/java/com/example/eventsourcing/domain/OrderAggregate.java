@@ -15,6 +15,7 @@ import com.example.eventsourcing.dto.WaypointDto;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import eventsourcing.postgresql.domain.Aggregate;
 import eventsourcing.postgresql.error.AggregateStateException;
+import eventsourcing.postgresql.error.CommandValidationException;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
@@ -50,15 +51,15 @@ public class OrderAggregate extends Aggregate {
             throw new AggregateStateException("Can't place an order, it's already in status %s", status);
         }
         if (command.getRiderId() == null) {
-            throw new IllegalArgumentException("Rider ID cannot be null");
+            throw new CommandValidationException("Rider ID cannot be null");
         }
         validatePositivePrice(command.getPrice(), "Price must be strictly positive");
         if (command.getRoute() == null) {
-            throw new IllegalArgumentException("Route cannot be null");
+            throw new CommandValidationException("Route cannot be null");
         }
         for (WaypointDto wp : command.getRoute()) {
             if (wp == null) {
-                throw new IllegalArgumentException("Waypoint cannot be null");
+                throw new CommandValidationException("Waypoint cannot be null");
             }
             wp.validate();
         }
@@ -77,7 +78,7 @@ public class OrderAggregate extends Aggregate {
         }
         validatePositivePrice(command.getNewPrice(), "New price must be strictly positive");
         if (this.price != null && this.price.compareTo(command.getNewPrice()) == 0) {
-            throw new IllegalArgumentException("New price cannot be identical to current price");
+            throw new CommandValidationException("New price cannot be identical to current price");
         }
         applyChange(OrderPriceAdjustedEvent.builder()
                 .aggregateId(aggregateId)
@@ -91,10 +92,10 @@ public class OrderAggregate extends Aggregate {
             throw new AggregateStateException("Can't accept order in status %s", status);
         }
         if (command.getDriverId() == null) {
-            throw new IllegalArgumentException("Driver ID cannot be null");
+            throw new CommandValidationException("Driver ID cannot be null");
         }
         if (command.getDriverId().equals(this.riderId)) {
-            throw new IllegalArgumentException("Driver cannot accept their own ride request");
+            throw new CommandValidationException("Driver cannot accept their own ride request");
         }
         applyChange(OrderAcceptedEvent.builder()
                 .aggregateId(aggregateId)
@@ -165,7 +166,7 @@ public class OrderAggregate extends Aggregate {
 
     private static void validatePositivePrice(BigDecimal price, String errorMessage) {
         if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException(errorMessage);
+            throw new CommandValidationException(errorMessage);
         }
     }
 }

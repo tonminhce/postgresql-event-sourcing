@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import eventsourcing.postgresql.error.AggregateStateException;
+import eventsourcing.postgresql.error.CommandValidationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -83,7 +84,7 @@ class OrderAggregateDomainTest {
             var cmd = new PlaceOrderCommand(orderId, null, new BigDecimal("120.00"), sampleRoute());
 
             assertThatThrownBy(() -> aggregate.process(cmd))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("Rider ID cannot be null");
         }
 
@@ -95,11 +96,11 @@ class OrderAggregateDomainTest {
             var cmdNeg = new PlaceOrderCommand(orderId, riderId, new BigDecimal("-10.00"), sampleRoute());
 
             assertThatThrownBy(() -> aggregate.process(cmdZero))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("Price must be strictly positive");
 
             assertThatThrownBy(() -> aggregate.process(cmdNeg))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("Price must be strictly positive");
         }
 
@@ -111,11 +112,11 @@ class OrderAggregateDomainTest {
             var invalidLonRoute = List.of(new WaypointDto("Bad Lon", 50.0, 190.0));
 
             assertThatThrownBy(() -> aggregate.process(new PlaceOrderCommand(orderId, riderId, new BigDecimal("50.00"), invalidLatRoute)))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("Invalid latitude");
 
             assertThatThrownBy(() -> aggregate.process(new PlaceOrderCommand(orderId, riderId, new BigDecimal("50.00"), invalidLonRoute)))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("Invalid longitude");
         }
 
@@ -125,16 +126,16 @@ class OrderAggregateDomainTest {
             var aggregate = new OrderAggregate(orderId, 0);
 
             assertThatThrownBy(() -> aggregate.process(new PlaceOrderCommand(orderId, riderId, new BigDecimal("100.00"), null)))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("Route cannot be null");
 
             assertThatThrownBy(() -> aggregate.process(new PlaceOrderCommand(orderId, riderId, new BigDecimal("100.00"), Collections.singletonList(null))))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("Waypoint cannot be null");
 
             var nanRoute = List.of(new WaypointDto("NaN Lat", Double.NaN, 30.0));
             assertThatThrownBy(() -> aggregate.process(new PlaceOrderCommand(orderId, riderId, new BigDecimal("100.00"), nanRoute)))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("Invalid latitude");
         }
 
@@ -177,7 +178,7 @@ class OrderAggregateDomainTest {
             var aggregate = createPlacedOrder();
 
             assertThatThrownBy(() -> aggregate.process(new AdjustOrderPriceCommand(orderId, new BigDecimal("100.00"))))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("identical to current price");
         }
 
@@ -187,11 +188,11 @@ class OrderAggregateDomainTest {
             var aggregate = createPlacedOrder();
 
             assertThatThrownBy(() -> aggregate.process(new AdjustOrderPriceCommand(orderId, BigDecimal.ZERO)))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("New price must be strictly positive");
 
             assertThatThrownBy(() -> aggregate.process(new AdjustOrderPriceCommand(orderId, new BigDecimal("-20.00"))))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("New price must be strictly positive");
         }
 
@@ -256,7 +257,7 @@ class OrderAggregateDomainTest {
             var aggregate = createPlacedOrder();
 
             assertThatThrownBy(() -> aggregate.process(new AcceptOrderCommand(orderId, riderId)))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("Driver cannot accept their own ride request");
         }
 
@@ -266,7 +267,7 @@ class OrderAggregateDomainTest {
             var aggregate = createPlacedOrder();
 
             assertThatThrownBy(() -> aggregate.process(new AcceptOrderCommand(orderId, null)))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(CommandValidationException.class)
                     .hasMessageContaining("Driver ID cannot be null");
         }
     }
