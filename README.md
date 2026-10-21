@@ -788,6 +788,11 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
 
 9. Explore the database using Adminer at http://localhost:8181.
    Find the database name, user, and password in [docker-compose.yml](docker-compose.yml).
+   They default to `postgres` / `admin` / `s3cr3t` and can be overridden without
+   editing the compose file:
+    ```bash
+    POSTGRES_DB=orders POSTGRES_USER=app POSTGRES_PASSWORD=... docker compose up -d
+    ```
 
 ### <a id="7-2"></a>REST API testing with cURL
 
@@ -924,9 +929,11 @@ The project ships a shared run configuration in
 [.idea/runConfigurations](.idea/runConfigurations), so there is nothing to set
 up manually.
 
-1. Start the infrastructure the application connects to (the application
-   containers are not needed, and they would compete for port 8080):
+1. Start the infrastructure the application connects to. The `nginx` and
+   `event-sourcing-app` containers publish port 8080, so they have to be stopped
+   for the application to be able to bind it:
     ```bash
+    docker compose stop nginx event-sourcing-app
     docker compose up -d postgres kafka
     ```
 
@@ -968,3 +975,7 @@ Notes:
 | 8181 | Adminer |
 | 5432 | PostgreSQL |
 | 9092 | Kafka |
+
+Only port 8080 is published on all the interfaces. The database, the broker, the
+Kafka UI and Adminer are bound to the loopback interface, so they are not
+reachable from outside of the host.
