@@ -1,0 +1,40 @@
+meta {
+  name: Modify Order - Same Key Different Payload
+  type: http
+  seq: 7
+}
+
+put {
+  url: {{baseUrl}}/orders/{{idemOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Idempotency-Key: {{idemRunKey}}-modify
+}
+
+body:json {
+  {
+    "status": "ADJUSTED",
+    "price": "999.00"
+  }
+}
+
+tests {
+      test("returns 422 Unprocessable Entity", function () {
+        expect(res.getStatus()).to.equal(422);
+      });
+
+      test("returns the IDEMPOTENCY_KEY_MISMATCH code", function () {
+        expect(res.getBody().code).to.equal("IDEMPOTENCY_KEY_MISMATCH");
+      });
+    
+}
+
+docs {
+      The key of the previous `PUT` is reused with a different payload. The server
+      stores a SHA-256 hash of the payload with the key and rejects the reuse.
+    
+}

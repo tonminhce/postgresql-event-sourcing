@@ -603,6 +603,28 @@ In distributed systems and microservices, client retries or network blips can ca
 > [!TIP]
 > High-value mutation operations (`POST /orders`, `PUT /orders/{id}`) should always supply an `Idempotency-Key` UUIDv4.
 
+**The `Idempotency-Key` namespace is global.** The key is the primary key of
+`ES_IDEMPOTENCY_KEY`, so one key identifies exactly one command. Reusing a key
+for a different command - even for another command on the same order - is
+rejected with `HTTP 422` and the code `IDEMPOTENCY_KEY_MISMATCH`.
+
+**`PUT /orders/{id}` is idempotent when it is given a key.** The endpoint
+accepts the state transitions of the order aggregate (`ADJUSTED`, `ACCEPTED`,
+`COMPLETED`, `CANCELLED`). Repeating the same call with the same key and the
+same payload returns the cached response with the `Idempotent-Replayed: true`
+header and **does not append a second event**:
+
+```bash
+curl -s -X PUT http://localhost:8080/orders/$ORDER_ID \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"status": "ACCEPTED", "driverId": "2c068a1a-9263-433f-a70b-067d51b98378"}'
+```
+
+Without a key the call is a plain command: the second `ACCEPTED` of the same
+order is rejected with `HTTP 400`, because the aggregate has already reached
+that state.
+
 #### <a id="4-10-2"></a>Event upcasting and schema evolution
 
 Event stores are append-only and immutable. However, business requirements change over time, altering event schema definitions. Updating historical events in place violates event sourcing purity.
@@ -618,7 +640,7 @@ Asynchronous event handlers (such as integration publishers or downstream consum
 * **Exponential Backoff**: [`EventSubscriptionBatchProcessor`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/EventSubscriptionBatchProcessor.java) retries failed handlers with increasing delays (1s, 2s, 4s).
 * **DLQ Isolation**: If max retries are exceeded, the event, exception class, error message, stack trace, and timestamp are inserted into `ES_EVENT_SUBSCRIPTION_DEAD_LETTER` (Flyway migration V4 `V4__subscription_dlq.sql`).
 * **Stream Continuity**: The subscription checkpoint is safely advanced, ensuring healthy events continue streaming without system-wide deadlocks.
-* **Day-2 Management**: [`EventSubscriptionDeadLetterService`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/EventSubscriptionDeadLetterService.java) provides operations to inspect DLQ records (`GET /admin/subscriptions/dlq`), replay specific entries (`POST /admin/subscriptions/dlq/{id}/replay`), or purge dead records.
+* **Day-2 Management**: [`EventSubscriptionDeadLetterService`](postgresql-event-sourcing-core/src/main/java/eventsourcing/postgresql/service/EventSubscriptionDeadLetterService.java) provides operations to inspect DLQ records (`GET /admin/subscriptions/dlq`), replay specific entries (`POST /admin/subscriptions/replay/dlq/{id}`), or purge dead records.
 
 ![Dead letter queue pattern](img/subscription-dead-letter-queue.svg)
 
@@ -627,8 +649,8 @@ Asynchronous event handlers (such as integration publishers or downstream consum
 Read projections may drift due to bugs, require recalculation with new fields, or need rebuilding from scratch.
 
 * [`OrderProjectionRebuildService`](event-sourcing-app/src/main/java/com/example/eventsourcing/projection/OrderProjectionRebuildService.java) provides:
-  - Granular single-aggregate projection repair (`POST /admin/projections/orders/{id}/rebuild`).
-  - Full stream projection rebuild (`POST /admin/projections/orders/rebuild`), streaming distinct aggregate IDs in batches and replaying events without database downtime or table locks.
+  - Granular single-aggregate projection repair (`POST /admin/projections/rebuild/orders/{id}`).
+  - Full stream projection rebuild (`POST /admin/projections/rebuild/orders`), streaming distinct aggregate IDs in batches and replaying events without database downtime or table locks.
 * Read models maintain projection tables (`RM_ORDER` and `RM_ORDER_ROUTE`) for instant CQRS query access.
 
 #### <a id="4-10-5"></a>Observability and Prometheus metrics
@@ -863,6 +885,17 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
 
 ### <a id="7-3"></a>Day-2 admin operations (DLQ & Projections)
 
+The admin endpoints follow one URL convention: **the action segment sits in
+front of the resource it acts on**, so the resource id is always the last
+segment of the path and an action can never be mistaken for an id.
+
+| Endpoint | Action | Resource |
+| --- | --- | --- |
+| `GET /admin/subscriptions/dlq` | - | the dead letter queue |
+| `POST /admin/subscriptions/replay/dlq/{id}` | `replay` | one dead letter record |
+| `POST /admin/projections/rebuild/orders` | `rebuild` | all the order projections |
+| `POST /admin/projections/rebuild/orders/{id}` | `rebuild` | one order projection |
+
 1. View poisoned events in Dead Letter Queue (DLQ):
     ```bash
     curl -s -X GET http://localhost:8080/admin/subscriptions/dlq | jq
@@ -870,17 +903,17 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
 
 2. Replay a dead-letter event after resolving downstream dependency:
     ```bash
-    curl -s -X POST http://localhost:8080/admin/subscriptions/dlq/1/replay | jq
+    curl -s -X POST http://localhost:8080/admin/subscriptions/replay/dlq/1 | jq
     ```
 
 3. Rebuild an individual order read projection from the event stream:
     ```bash
-    curl -s -X POST http://localhost:8080/admin/projections/orders/$ORDER_ID/rebuild | jq
+    curl -s -X POST http://localhost:8080/admin/projections/rebuild/orders/$ORDER_ID | jq
     ```
 
 4. Full projection stream rebuild:
     ```bash
-    curl -s -X POST http://localhost:8080/admin/projections/orders/rebuild | jq
+    curl -s -X POST http://localhost:8080/admin/projections/rebuild/orders | jq
     ```
 
 5. Scrape Prometheus observability metrics:

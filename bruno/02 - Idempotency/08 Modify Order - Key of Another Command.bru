@@ -1,0 +1,44 @@
+meta {
+  name: Modify Order - Key of Another Command
+  type: http
+  seq: 8
+}
+
+put {
+  url: {{baseUrl}}/orders/{{idemOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Idempotency-Key: {{idemRunKey}}
+}
+
+body:json {
+  {
+    "status": "ACCEPTED",
+    "driverId": "{{driverId}}"
+  }
+}
+
+tests {
+      test("returns 422 Unprocessable Entity", function () {
+        expect(res.getStatus()).to.equal(422);
+      });
+
+      test("returns the IDEMPOTENCY_KEY_MISMATCH code", function () {
+        expect(res.getBody().code).to.equal("IDEMPOTENCY_KEY_MISMATCH");
+      });
+    
+}
+
+docs {
+      The key of the `POST /orders` is reused for a `PUT /orders/{id}`.
+
+      The key is the primary key of `ES_IDEMPOTENCY_KEY`, so the key namespace is
+      global: one key identifies exactly one command. The same key must never be
+      reused for a different command, not even for another command on the same
+      order.
+    
+}

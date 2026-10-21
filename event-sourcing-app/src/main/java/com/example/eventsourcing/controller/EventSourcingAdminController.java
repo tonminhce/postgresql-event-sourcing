@@ -33,7 +33,7 @@ public class EventSourcingAdminController {
         return ResponseEntity.ok(deadLetterService.getDeadLetters(subscriptionName, limit));
     }
 
-    @PostMapping("/subscriptions/dlq/{id}/replay")
+    @PostMapping("/subscriptions/replay/dlq/{id}")
     public ResponseEntity<Map<String, Object>> replayDeadLetter(@PathVariable long id) {
         deadLetterService.replayDeadLetter(id);
         return ResponseEntity.ok(Map.of(
@@ -42,7 +42,7 @@ public class EventSourcingAdminController {
         ));
     }
 
-    @PostMapping("/projections/orders/rebuild")
+    @PostMapping("/projections/rebuild/orders")
     public ResponseEntity<Map<String, Object>> rebuildAllOrderProjections() {
         int count = projectionRebuildService.rebuildAllOrders();
         return ResponseEntity.ok(Map.of(
@@ -51,7 +51,7 @@ public class EventSourcingAdminController {
         ));
     }
 
-    @PostMapping("/projections/orders/{id}/rebuild")
+    @PostMapping("/projections/rebuild/orders/{id}")
     public ResponseEntity<Map<String, Object>> rebuildSingleOrderProjection(@PathVariable UUID id) {
         projectionRebuildService.rebuildOrder(id);
         return ResponseEntity.ok(Map.of(

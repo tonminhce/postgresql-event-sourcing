@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/admin/projections/orders/rebuild
+  url: {{baseUrl}}/admin/projections/rebuild/orders
   body: none
   auth: none
 }
@@ -25,5 +25,8 @@ tests {
 docs {
       Replays the whole event stream into the read model. Useful after a
       projection bug or to verify the projections can be rebuilt from scratch.
+
+      The action segment `rebuild` sits in front of the resource it acts on, so
+      the id is always the last segment of the path.
     
 }

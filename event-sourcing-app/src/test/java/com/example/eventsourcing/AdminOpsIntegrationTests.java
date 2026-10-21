@@ -70,7 +70,7 @@ class AdminOpsIntegrationTests extends AbstractContainerBaseTest {
 
         // Trigger projection rebuild via Admin API
         ResponseEntity<String> rebuildResponse = restTemplate.postForEntity(
-                "/admin/projections/orders/" + orderId + "/rebuild",
+                "/admin/projections/rebuild/orders/" + orderId,
                 null,
                 String.class
         );
@@ -87,7 +87,7 @@ class AdminOpsIntegrationTests extends AbstractContainerBaseTest {
 
         // Also test bulk rebuild endpoint
         ResponseEntity<String> bulkRebuildResponse = restTemplate.postForEntity(
-                "/admin/projections/orders/rebuild",
+                "/admin/projections/rebuild/orders",
                 null,
                 String.class
         );
@@ -157,7 +157,7 @@ class AdminOpsIntegrationTests extends AbstractContainerBaseTest {
 
         // Replay the DLQ event via Admin API
         ResponseEntity<String> replayResponse = restTemplate.postForEntity(
-                "/admin/subscriptions/dlq/" + dlqId + "/replay",
+                "/admin/subscriptions/replay/dlq/" + dlqId,
                 null,
                 String.class
         );
@@ -231,7 +231,7 @@ class AdminOpsIntegrationTests extends AbstractContainerBaseTest {
     @Test
     void shouldReturnNotFoundWhenRebuildingProjectionOfUnknownOrder() {
         ResponseEntity<String> rebuildResponse = restTemplate.postForEntity(
-                "/admin/projections/orders/" + UUID.randomUUID() + "/rebuild",
+                "/admin/projections/rebuild/orders/" + UUID.randomUUID(),
                 null,
                 String.class
         );
