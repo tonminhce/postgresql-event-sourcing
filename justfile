@@ -10,6 +10,11 @@ jib:
     ./mvnw compile jib:dockerBuild -pl event-sourcing-app
 
 up:
+    docker compose up -d
+
+# Two instances of the application, to exercise the transactional outbox and the
+# optimistic concurrency control across several JVMs.
+up-scaled:
     docker compose up -d --scale event-sourcing-app=2
 
 down:

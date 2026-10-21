@@ -762,8 +762,13 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
 
 5. Run PostgreSQL, Kafka and event-sourcing-app
     ```bash
-    docker compose up -d --scale event-sourcing-app=2
+    docker compose up -d
     # wait a few minutes
+    ```
+   To run two instances of the application, to exercise the transactional outbox
+   and the optimistic concurrency control across several JVMs:
+    ```bash
+    docker compose up -d --scale event-sourcing-app=2
     ```
 
 6. Follow the logs of the application
