@@ -1,0 +1,19 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="PostgresEventSourcingApplication" type="Application" factoryName="Application">
+    <module name="event-sourcing-app" />
+    <option name="MAIN_CLASS_NAME" value="com.example.eventsourcing.PostgresEventSourcingApplication" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="VM_PARAMETERS" value="-Dfile.encoding=UTF-8" />
+    <envs>
+      <env name="SPRING_DATASOURCE_URL" value="jdbc:postgresql://localhost:5432/postgres" />
+      <env name="SPRING_DATASOURCE_USERNAME" value="admin" />
+      <env name="SPRING_DATASOURCE_PASSWORD" value="s3cr3t" />
+      <env name="SPRING_KAFKA_BOOTSTRAPSERVERS" value="localhost:9092" />
+    </envs>
+    <option name="PROGRAM_PARAMETERS" value="" />
+    <shortenClasspath name="NONE" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
