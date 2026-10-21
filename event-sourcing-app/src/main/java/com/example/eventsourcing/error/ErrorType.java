@@ -17,8 +17,8 @@ import java.util.Locale;
  * <p>The name of the constant is the machine-readable code of the error. It is
  * returned to the clients in the {@code code} member of the problem details,
  * and it is stable: it never changes, so that the clients can safely branch on
- * it. The {@code type} URI is derived from it, and the {@code title} is the
- * short summary of the problem type.
+ * it. The {@code type} URI points to the documentation of the error, and the
+ * {@code title} is the short summary of the problem type.
  */
 public enum ErrorType {
 
@@ -38,8 +38,6 @@ public enum ErrorType {
     // 422 - the request is well-formed but violates a business rule
     VALIDATION_FAILED(HttpStatus.UNPROCESSABLE_CONTENT, "Validation failed"),
     IDEMPOTENCY_KEY_MISMATCH(HttpStatus.UNPROCESSABLE_CONTENT, "Idempotency key mismatch");
-
-    private static final String TYPE_PREFIX = "urn:problem-type:";
 
     private final HttpStatus status;
     private final String title;
@@ -65,10 +63,20 @@ public enum ErrorType {
     }
 
     /**
-     * The URI that identifies the problem type of the error.
+     * The anchor of the section of the error in the documentation of the error types.
      */
-    public URI type() {
-        return URI.create(TYPE_PREFIX + name().toLowerCase(Locale.ROOT).replace('_', '-'));
+    public String slug() {
+        return name().toLowerCase(Locale.ROOT).replace('_', '-');
+    }
+
+    /**
+     * The URI that identifies the problem type of the error and points to its
+     * documentation.
+     *
+     * @param docsUrl the base URL of the documentation of the error types
+     */
+    public URI uri(String docsUrl) {
+        return URI.create(docsUrl + "#" + slug());
     }
 
     /**

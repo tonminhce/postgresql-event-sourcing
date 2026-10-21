@@ -1,8 +1,11 @@
 package com.example.eventsourcing.error;
 
+import com.example.eventsourcing.config.ApiProperties;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
 
 import java.net.URI;
 
@@ -15,7 +18,7 @@ import java.net.URI;
  *
  * <pre>
  * {
- *   "type": "urn:problem-type:order-state-conflict",
+ *   "type": "https://github.com/tonminhce/postgresql-event-sourcing/blob/main/docs/api/errors.md#order-state-conflict",
  *   "title": "Invalid order state",
  *   "status": 409,
  *   "detail": "Order in status COMPLETED can't be cancelled",
@@ -24,19 +27,21 @@ import java.net.URI;
  * }
  * </pre>
  *
- * <p>The {@code code} member is an extension of the specification. It is a stable,
- * machine-readable identifier that the clients can branch on, whereas the
+ * <p>The {@code type} member identifies the problem type and points to its
+ * documentation. The {@code code} member is an extension of the specification. It is
+ * a stable, machine-readable identifier that the clients can branch on, whereas the
  * {@code detail} member is a human-readable message that may change.
  */
-public final class ProblemDetails {
+@Component
+@RequiredArgsConstructor
+public class ProblemDetails {
 
-    private ProblemDetails() {
-    }
+    private final ApiProperties apiProperties;
 
-    public static ResponseEntity<Object> of(ErrorType type, String detail, String instance) {
+    public ResponseEntity<Object> of(ErrorType type, String detail, String instance) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(type.status(), detail);
         problemDetail.setTitle(type.title());
-        problemDetail.setType(type.type());
+        problemDetail.setType(type.uri(apiProperties.getProblemTypeDocsUrl()));
         problemDetail.setProperty("code", type.code());
         if (instance != null) {
             problemDetail.setInstance(URI.create(instance));

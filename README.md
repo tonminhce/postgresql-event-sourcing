@@ -845,7 +845,7 @@ problem detail, with the `application/problem+json` media type:
 
 ```json
 {
-  "type": "urn:problem-type:order-state-conflict",
+  "type": "https://github.com/tonminhce/postgresql-event-sourcing/blob/main/docs/api/errors.md#order-state-conflict",
   "title": "Invalid order state",
   "status": 409,
   "detail": "Order in status COMPLETED can't be cancelled",
@@ -870,6 +870,16 @@ human-readable message that may change.
 | `IDEMPOTENCY_KEY_MISMATCH` | 422 |
 | `RESOURCE_NOT_FOUND` | 404 |
 
+Every error is documented in [docs/api/errors.md](docs/api/errors.md), and the `type`
+member of a problem detail points to the section of the error it describes. The base
+URL of that documentation is configurable with `api.problem-type-docs-url`.
+
+The catalog is also available as JSON, for the clients and the SDK generators that
+want to discover the codes:
+```bash
+curl -s http://localhost:8080/api/errors | jq
+```
+
 The catalog of the errors is a single enum, so a new error is added in one
 place and its status code is defined there as well:
 
@@ -878,6 +888,7 @@ place and its status code is defined there as well:
 | [`ErrorType`](event-sourcing-app/src/main/java/com/example/eventsourcing/error/ErrorType.java) | The catalog: the code, the HTTP status and the title of every error |
 | [`ProblemDetails`](event-sourcing-app/src/main/java/com/example/eventsourcing/error/ProblemDetails.java) | Builds the problem detail of an error |
 | [`ApiExceptionHandler`](event-sourcing-app/src/main/java/com/example/eventsourcing/error/ApiExceptionHandler.java) | Maps the exceptions to the errors of the catalog |
+| [`ApiErrorsController`](event-sourcing-app/src/main/java/com/example/eventsourcing/controller/ApiErrorsController.java) | Exposes the catalog as JSON on `GET /api/errors` |
 
 ### <a id="7-2"></a>REST API testing with cURL
 

@@ -20,6 +20,12 @@ spring:
       properties:
         max.in.flight.requests.per.connection: 1
 
+api:
+  # The base URL of the documentation of the error types. The "type" member of a
+  # problem detail is this URL followed by the anchor of the error, e.g.
+  # ".../docs/api/errors.md#order-state-conflict"
+  problem-type-docs-url: https://github.com/tonminhce/postgresql-event-sourcing/blob/main/docs/api/errors.md
+
 event-sourcing:
   snapshotting:
     # com.example.eventsourcing.domain.AggregateType

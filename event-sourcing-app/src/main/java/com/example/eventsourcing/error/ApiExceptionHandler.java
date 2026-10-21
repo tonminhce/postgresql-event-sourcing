@@ -6,6 +6,7 @@ import eventsourcing.postgresql.error.IdempotencyConflictException;
 import eventsourcing.postgresql.error.IdempotencyInProgressException;
 import eventsourcing.postgresql.error.IdempotencyPayloadMismatchException;
 import eventsourcing.postgresql.error.OptimisticConcurrencyControlException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -29,7 +30,10 @@ import java.util.NoSuchElementException;
  * declared by the {@link ErrorType} of the error.
  */
 @RestControllerAdvice
+@RequiredArgsConstructor
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
+
+    private final ProblemDetails problemDetails;
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
@@ -102,7 +106,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private ResponseEntity<Object> problem(ErrorType type, String detail, WebRequest request) {
-        return ProblemDetails.of(type, detail, pathOf(request));
+        return problemDetails.of(type, detail, pathOf(request));
     }
 
     private String pathOf(WebRequest request) {
