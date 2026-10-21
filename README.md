@@ -49,6 +49,7 @@
 - [How to adapt it to your domain?](#6)
 - [How to run the sample?](#7)
   - [Step-by-step setup](#7-1)
+  - [API conventions](#7-1-1)
   - [REST API testing with cURL](#7-2)
   - [Day-2 admin operations (DLQ & Projections)](#7-3)
   - [API testing with Bruno](#7-4)
@@ -816,6 +817,58 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
     ```bash
     POSTGRES_DB=orders POSTGRES_USER=app POSTGRES_PASSWORD=... docker compose up -d
     ```
+
+### <a id="7-1-1"></a>API conventions
+
+#### Status codes
+
+The API follows the status code semantics of [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html):
+
+| Status | When |
+| --- | --- |
+| `200 OK` | The request succeeded and the response describes the result |
+| `201 Created` | A resource was created. The `Location` header points to it |
+| `400 Bad Request` | The request is malformed: a required field is missing, the JSON is invalid, a path variable cannot be parsed |
+| `409 Conflict` | The request is valid, but it conflicts with the current state of the resource: the order is already in that state, an optimistic concurrency check failed, a request with the same idempotency key is still in flight |
+| `415 Unsupported Media Type` | The `Content-Type` is not supported |
+| `422 Unprocessable Content` | The request is well-formed, but its content violates a business rule: a non-positive price, coordinates out of range, a missing field that the requested transition requires |
+| `429`/`503` | Reserved for the rate limiting and the availability of the dependencies |
+
+The distinction between `400`, `409` and `422` is the one of RFC 9110:
+`400` is a malformed request, `409` is a conflict with the current state, and
+`422` is a well-formed request that cannot be carried out.
+
+#### Error responses
+
+Every error is serialized as an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html)
+problem detail, with the `application/problem+json` media type:
+
+```json
+{
+  "type": "urn:problem-type:order-state-conflict",
+  "title": "Invalid order state",
+  "status": 409,
+  "detail": "Order in status COMPLETED can't be cancelled",
+  "instance": "/orders/48f08af0-e7a5-3451-8ed7-87cc9d131ad1",
+  "code": "ORDER_STATE_CONFLICT"
+}
+```
+
+The `code` member is an extension of the specification: it is a stable,
+machine-readable identifier that clients can branch on, whereas `detail` is a
+human-readable message that may change.
+
+| `code` | Status |
+| --- | --- |
+| `VALIDATION_ERROR` | 400 |
+| `INVALID_REQUEST` | 400 |
+| `VALIDATION_FAILED` | 422 |
+| `ORDER_STATE_CONFLICT` | 409 |
+| `CONCURRENT_MODIFICATION` | 409 |
+| `IDEMPOTENCY_CONFLICT` | 409 |
+| `IDEMPOTENCY_REQUEST_IN_PROGRESS` | 409 |
+| `IDEMPOTENCY_KEY_MISMATCH` | 422 |
+| `RESOURCE_NOT_FOUND` | 404 |
 
 ### <a id="7-2"></a>REST API testing with cURL
 

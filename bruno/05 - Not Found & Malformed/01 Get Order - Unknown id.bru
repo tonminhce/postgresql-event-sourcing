@@ -14,11 +14,11 @@ tests {
       test("returns 404", function () {
         expect(res.getStatus()).to.equal(404);
       });
-    
-}
 
-docs {
-      The response body is empty (no JSON error envelope) because the controller
-      returns `ResponseEntity.notFound().build()`.
+      test("is a problem details response", function () {
+        expect(res.getHeader("content-type")).to.include("application/problem+json");
+        expect(res.getBody().code).to.equal("RESOURCE_NOT_FOUND");
+        expect(res.getBody().detail).to.include("Order not found for ID");
+      });
     
 }

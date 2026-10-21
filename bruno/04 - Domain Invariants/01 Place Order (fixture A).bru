@@ -30,15 +30,15 @@ body:json {
 }
 
 script:post-response {
-      if (res.getStatus() === 200) {
+      if (res.getStatus() === 201) {
         bru.setEnvVar("domainOrderId", res.getBody().orderId);
       }
     
 }
 
 tests {
-      test("returns 200 with an orderId", function () {
-        expect(res.getStatus()).to.equal(200);
+      test("returns 201 Created with an orderId", function () {
+        expect(res.getStatus()).to.equal(201);
         expect(res.getBody()).to.have.property("orderId");
       });
     

@@ -42,15 +42,15 @@ script:pre-request {
 }
 
 script:post-response {
-      if (res.getStatus() === 200) {
+      if (res.getStatus() === 201) {
         bru.setEnvVar("idemOrderId", res.getBody().orderId);
       }
     
 }
 
 tests {
-      test("returns 200", function () {
-        expect(res.getStatus()).to.equal(200);
+      test("returns 201 Created", function () {
+        expect(res.getStatus()).to.equal(201);
       });
 
       test("is not a replay on the first call", function () {

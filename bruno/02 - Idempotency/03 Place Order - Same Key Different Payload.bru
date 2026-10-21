@@ -35,8 +35,9 @@ tests {
       });
 
       test("returns the IDEMPOTENCY_KEY_MISMATCH code", function () {
+        expect(res.getHeader("content-type")).to.include("application/problem+json");
         expect(res.getBody().code).to.equal("IDEMPOTENCY_KEY_MISMATCH");
-        expect(res.getBody().error).to.include("different payload");
+        expect(res.getBody().detail).to.include("different payload");
       });
     
 }

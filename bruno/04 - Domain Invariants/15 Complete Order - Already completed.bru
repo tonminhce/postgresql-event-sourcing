@@ -21,12 +21,17 @@ body:json {
 }
 
 tests {
-      test("returns 400", function () {
-        expect(res.getStatus()).to.equal(400);
+      test("returns 409 Conflict", function () {
+        expect(res.getStatus()).to.equal(409);
+      });
+
+      test("is a problem details response", function () {
+        expect(res.getHeader("content-type")).to.include("application/problem+json");
+        expect(res.getBody().code).to.equal("ORDER_STATE_CONFLICT");
       });
 
       test("reports the current status", function () {
-        expect(res.getBody().error).to.include("can't be completed");
+        expect(res.getBody().detail).to.include("can't be completed");
       });
     
 }

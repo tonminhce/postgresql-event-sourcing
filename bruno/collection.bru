@@ -55,6 +55,34 @@ docs {
   in the pre-request script, so the first call is always a real first call and
   the next requests exercise the replay path. Both stay green when the
   collection is run repeatedly.
+
+  ## API conventions
+
+  The API follows the status code semantics of RFC 9110 and serializes every
+  error as an RFC 9457 problem detail:
+
+  | Status | When |
+  | --- | --- |
+  | `200` | The request succeeded and the response describes the result |
+  | `201` | A resource was created, the `Location` header points to it |
+  | `400` | The request is malformed (missing field, invalid JSON, unparsable path variable) |
+  | `409` | The request conflicts with the current state of the resource |
+  | `415` | The `Content-Type` is not supported |
+  | `422` | The request is well-formed but violates a business rule |
+
+  ```json
+  {
+    "type": "urn:problem-type:order-state-conflict",
+    "title": "Invalid order state",
+    "status": 409,
+    "detail": "Order in status COMPLETED can't be cancelled",
+    "instance": "/orders/48f08af0-e7a5-3451-8ed7-87cc9d131ad1",
+    "code": "ORDER_STATE_CONFLICT"
+  }
+  ```
+
+  The `code` member is a stable, machine-readable identifier; `detail` is a
+  human-readable message that may change.
 }
 
 vars:pre-request {

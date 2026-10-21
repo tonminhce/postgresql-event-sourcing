@@ -35,20 +35,24 @@ body:json {
 }
 
 script:post-response {
-      if (res.getStatus() === 200) {
+      if (res.getStatus() === 201) {
         bru.setEnvVar("orderId", res.getBody().orderId);
       }
     
 }
 
 tests {
-      test("returns 200", function () {
-        expect(res.getStatus()).to.equal(200);
+      test("returns 201 Created", function () {
+        expect(res.getStatus()).to.equal(201);
       });
 
       test("returns an orderId", function () {
         expect(res.getBody()).to.have.property("orderId");
         expect(res.getBody().orderId).to.be.a("string");
+      });
+
+      test("points to the created order with the Location header", function () {
+        expect(res.getHeader("location")).to.equal("/orders/" + res.getBody().orderId);
       });
 
       test("is not an idempotent replay", function () {

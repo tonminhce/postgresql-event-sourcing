@@ -15,8 +15,13 @@ tests {
         expect(res.getStatus()).to.equal(404);
       });
 
+      test("is a problem details response", function () {
+        expect(res.getHeader("content-type")).to.include("application/problem+json");
+        expect(res.getBody().code).to.equal("RESOURCE_NOT_FOUND");
+      });
+
       test("explains that the order does not exist", function () {
-        expect(res.getBody().error).to.include("Order not found for ID");
+        expect(res.getBody().detail).to.include("Order not found for ID");
       });
     
 }

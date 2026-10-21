@@ -25,8 +25,13 @@ tests {
         expect(res.getStatus()).to.equal(400);
       });
 
+      test("is a problem details response", function () {
+        expect(res.getHeader("content-type")).to.include("application/problem+json");
+        expect(res.getBody().code).to.equal("VALIDATION_ERROR");
+      });
+
       test("explains that status is required", function () {
-        expect(res.getBody().error).to.include("status");
+        expect(res.getBody().detail).to.include("status");
       });
     
 }
