@@ -882,7 +882,7 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
     curl -s -X GET http://localhost:8080/actuator/prometheus | grep event_sourcing
     ```
 
-6. Browse the Kafka topics with the Kafka UI:
+6. Browse the Kafka topics with the Redpanda Console:
     ```bash
     docker compose up -d kafka-ui
     ```
@@ -964,7 +964,7 @@ Notes:
 | Port | Service |
 | --- | --- |
 | 8080 | The application (or the nginx load balancer in front of the containers) |
-| 8082 | Kafka UI |
+| 8082 | Redpanda Console (Kafka UI) |
 | 8181 | Adminer |
 | 5432 | PostgreSQL |
 | 9092 | Kafka |
