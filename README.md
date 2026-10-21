@@ -52,6 +52,7 @@
   - [REST API testing with cURL](#7-2)
   - [Day-2 admin operations (DLQ & Projections)](#7-3)
   - [API testing with Bruno](#7-4)
+  - [Running the application from IntelliJ IDEA](#7-5)
 
 <!-- Table of contents is made with https://github.com/eugene-khyst/md-toc-cli -->
 
@@ -876,6 +877,13 @@ No changes to `postgresql-event-sourcing-core` subproject are required.
     curl -s -X GET http://localhost:8080/actuator/prometheus | grep event_sourcing
     ```
 
+6. Browse the Kafka topics with the Kafka UI:
+    ```bash
+    docker compose up -d kafka-ui
+    ```
+    Then open http://localhost:8082 - the `order-events` topic holds the
+    integration events published by the transactional outbox.
+
 ### <a id="7-4"></a>API testing with Bruno
 
 The [bruno](bruno) folder contains a [Bruno](https://www.usebruno.com/) collection
@@ -904,3 +912,54 @@ the order aggregate, the admin endpoints and the actuator metrics.
 | `05 - Not Found & Malformed` | Unknown ids, malformed UUIDs and JSON payloads |
 | `06 - Admin & Operations` | Projection rebuild, dead letter queue |
 | `07 - Actuator Monitoring` | Health, metrics, subscription lag, Prometheus scrape |
+
+### <a id="7-5"></a>Running the application from IntelliJ IDEA
+
+The project ships a shared run configuration in
+[.idea/runConfigurations](.idea/runConfigurations), so there is nothing to set
+up manually.
+
+1. Start the infrastructure the application connects to (the application
+   containers are not needed, and they would compete for port 8080):
+    ```bash
+    docker compose up -d postgres kafka
+    ```
+
+2. Open the project in IntelliJ IDEA and let it import the Maven project
+   (the `event-sourcing-app` module is the one that contains the main class).
+
+3. Run -> Edit Configurations... -> select `PostgresEventSourcingApplication` ->
+    Run.
+
+The configuration starts `com.example.eventsourcing.PostgresEventSourcingApplication`
+with the environment variables of the Docker Compose stack:
+
+| Variable | Value |
+| --- | --- |
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5432/postgres` |
+| `SPRING_DATASOURCE_USERNAME` | `admin` |
+| `SPRING_DATASOURCE_PASSWORD` | `s3cr3t` |
+| `SPRING_KAFKA_BOOTSTRAPSERVERS` | `localhost:9092` |
+
+The application is then available on http://localhost:8080, the same URL the
+`curl` examples of the previous sections use.
+
+Notes:
+
+- If the module of the run configuration is shown as unresolved, pick
+  `event-sourcing-app` in the "Use classpath of module" dropdown.
+- The project uses Lombok and MapStruct, so annotation processing has to be
+  enabled (Settings -> Build, Execution, Deployment -> Compiler -> Annotation
+  Processors -> Enable annotation processing). The Maven import enables it
+  automatically.
+- To run against the `polling` subscription mode instead of the default
+  `postgres-channel` one, add `-Devent-sourcing.subscriptions=polling` to the
+  VM options of the run configuration.
+
+| Port | Service |
+| --- | --- |
+| 8080 | The application (or the nginx load balancer in front of the containers) |
+| 8082 | Kafka UI |
+| 8181 | Adminer |
+| 5432 | PostgreSQL |
+| 9092 | Kafka |
