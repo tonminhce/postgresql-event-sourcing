@@ -53,6 +53,7 @@
   - [Day-2 admin operations (DLQ & Projections)](#7-3)
   - [API testing with Bruno](#7-4)
   - [Running the application from IntelliJ IDEA](#7-5)
+  - [Backing up the data](#7-6)
 
 <!-- Table of contents is made with https://github.com/eugene-khyst/md-toc-cli -->
 
@@ -979,3 +980,18 @@ Notes:
 Only port 8080 is published on all the interfaces. The database, the broker, the
 Kafka UI and Adminer are bound to the loopback interface, so they are not
 reachable from outside of the host.
+
+### <a id="7-6"></a>Backing up the data
+
+The PostgreSQL database and the Kafka log directory are stored in the named
+volumes `pgdata` and `kafka-data`. To dump them:
+```bash
+just backup
+```
+It writes `backup/postgres.dump` (a `pg_dump` archive), `backup/kafka-data.tar.gz`
+and `backup/kafka-topics.txt`. The `backup` directory is not tracked by Git.
+
+Restore the database with:
+```bash
+docker compose exec -T postgres pg_restore -U admin -d postgres --clean < backup/postgres.dump
+```

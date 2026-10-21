@@ -20,6 +20,14 @@ up-scaled:
 down:
     docker compose down -v
 
+# Dump the PostgreSQL database and the Kafka log directory into ./backup.
+backup:
+    mkdir -p backup
+    docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > backup/postgres.dump
+    docker compose exec -T kafka sh -c 'tar czf - -C /var/lib/kafka/data . || true' > backup/kafka-data.tar.gz
+    docker compose exec -T kafka /bin/kafka-topics --bootstrap-server localhost:9092 --describe > backup/kafka-topics.txt
+    ls -lh backup
+
 e2e:
     E2E_TESTING=true ./mvnw test -pl event-sourcing-app -Dtest=PostgresEventSourcingApplicationE2ETests
 

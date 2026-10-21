@@ -2,6 +2,7 @@ HELP.md
 .gradle
 build/
 target/
+backup/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
