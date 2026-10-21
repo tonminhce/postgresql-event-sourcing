@@ -944,8 +944,17 @@ the order aggregate, the admin endpoints and the actuator metrics.
     cd bruno
     bru run --env Local
     ```
-    It reports 57 requests and 110 assertions, and it is re-runnable: the happy
+    It reports 59 requests and 114 assertions, and it is re-runnable: the happy
     path creates a new order on every run.
+
+3. To sync the collection from the repository into the Bruno desktop app:
+    ```bash
+    ./scripts/sync-bruno.sh
+    ```
+    The script copies the files over the existing ones instead of recreating
+    the directory: the Bruno app watches the collection folder, and removing it
+    while the app is running makes it report "No collection configuration
+    found".
 
 | Folder | What it covers |
 | --- | --- |
