@@ -870,6 +870,15 @@ human-readable message that may change.
 | `IDEMPOTENCY_KEY_MISMATCH` | 422 |
 | `RESOURCE_NOT_FOUND` | 404 |
 
+The catalog of the errors is a single enum, so a new error is added in one
+place and its status code is defined there as well:
+
+| Class | Responsibility |
+| --- | --- |
+| [`ErrorType`](event-sourcing-app/src/main/java/com/example/eventsourcing/error/ErrorType.java) | The catalog: the code, the HTTP status and the title of every error |
+| [`ProblemDetails`](event-sourcing-app/src/main/java/com/example/eventsourcing/error/ProblemDetails.java) | Builds the problem detail of an error |
+| [`ApiExceptionHandler`](event-sourcing-app/src/main/java/com/example/eventsourcing/error/ApiExceptionHandler.java) | Maps the exceptions to the errors of the catalog |
+
 ### <a id="7-2"></a>REST API testing with cURL
 
 1. Install [curl](https://curl.se/) and [jq](https://stedolan.github.io/jq/)

@@ -210,6 +210,35 @@ class OrderBusinessLogicIntegrationTests extends AbstractContainerBaseTest {
     }
 
     @Test
+    void shouldReturn409ConcurrentModificationWhenTheAggregateWasChangedConcurrently() throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        String orderId = placeTestOrder(new BigDecimal("200.00"));
+
+        // Simulate a lost update: the stored version of the aggregate is moved behind the
+        // back of the command, so the version it has read from the event stream no longer
+        // matches the stored one.
+        jdbcTemplate.update("UPDATE ES_AGGREGATE SET VERSION = 5 WHERE ID = ?", UUID.fromString(orderId));
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/orders/" + orderId,
+                HttpMethod.PUT,
+                new HttpEntity<>("""
+                        {
+                          "status":"ACCEPTED",
+                          "driverId":"2c068a1a-9263-433f-a70b-067d51b98378"
+                        }
+                        """, headers),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(CONFLICT);
+        JsonNode json = objectMapper.readTree(response.getBody());
+        assertThat(json.get("code").asText()).isEqualTo("CONCURRENT_MODIFICATION");
+    }
+
+    @Test
     void shouldSupportIdempotencyOnPutOrders() throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
